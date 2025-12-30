@@ -1,13 +1,15 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Camera, Eye, EyeOff, AlertTriangle, User, Lock, Wallet } from "lucide-react"
+import { Camera, Eye, EyeOff, AlertTriangle, User, Lock, Loader2, Upload } from "lucide-react"
+import { useUserAuth } from "@/hooks/use-user-auth"
+import { apiClient } from "@/lib/api-client"
 
 const INDIAN_STATES = [
   "Andhra Pradesh",
@@ -48,32 +50,48 @@ const INDIAN_STATES = [
   "Lakshadweep",
 ]
 
+interface UserSettings {
+  profile: {
+    full_name: string
+    contact: string
+    country: string
+    state: string
+    profile_pic_url: string
+  }
+  account: {
+    email: string
+    is_student: number
+    is_affiliate: number
+    is_subscribed: number
+    subscription_id: string | null
+    plan_id: number | null
+    platform_id: string | null
+    created_at: string
+    updated_at: string
+  }
+}
+
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<"payment" | "profile" | "account">("profile")
+  const { user, isLoading: authLoading } = useUserAuth()
+  const [activeTab, setActiveTab] = useState<"profile" | "account">("profile")
   const [showCurrentPassword, setShowCurrentPassword] = useState(false)
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
-  const [paymentData, setPaymentData] = useState({
-    fullAddress: "",
-    city: "",
-    state: "",
-    pincode: "",
-    accountHolderName: "",
-    accountNumber: "",
-    confirmAccountNumber: "",
-    ifscCode: "",
-    branchName: "",
-    upiAddress: "",
-  })
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [profileData, setProfileData] = useState({
-    fullName: "Ayaan Ahmed",
-    email: "ayaan@example.com",
-    contactNumber: "+91 9876543210",
+    full_name: "",
+    email: "",
+    contact: "",
     country: "India",
-    state: "Maharashtra",
+    state: "",
+    profile_pic_url: "",
   })
 
   const [passwordData, setPasswordData] = useState({
@@ -82,24 +100,159 @@ export default function SettingsPage() {
     confirmPassword: "",
   })
 
-  const handlePaymentUpdate = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Payment details updated:", paymentData)
-  }
+  useEffect(() => {
+    const fetchSettings = async () => {
+      if (!user?.id) return
 
-  const handleProfileUpdate = (e: React.FormEvent) => {
-    e.preventDefault()
-    console.log("Profile updated:", profileData)
-  }
+      try {
+        setLoading(true)
+        const response = await apiClient.get(`/users/${user.id}/settings`)
 
-  const handlePasswordChange = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (passwordData.newPassword !== passwordData.confirmPassword) {
-      alert("New passwords don't match!")
+        if (response.success && response.data?.settings) {
+          const settings: UserSettings = response.data.settings
+          setProfileData({
+            full_name: settings.profile.full_name || "",
+            email: settings.account.email || "",
+            contact: settings.profile.contact || "",
+            country: settings.profile.country || "India",
+            state: settings.profile.state || "",
+            profile_pic_url: settings.profile.profile_pic_url || "",
+          })
+        }
+      } catch (error) {
+        console.error("Failed to fetch settings:", error)
+        setMessage({ type: "error", text: "Failed to load settings" })
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    if (!authLoading && user) {
+      fetchSettings()
+    }
+  }, [user, authLoading])
+
+  const handleProfilePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const allowedTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    if (!allowedTypes.includes(file.type)) {
+      setMessage({ type: "error", text: "Please upload a valid image file (JPEG, PNG, GIF, or WebP)" })
       return
     }
-    console.log("Password changed")
-    setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" })
+
+    if (file.size > 5 * 1024 * 1024) {
+      setMessage({ type: "error", text: "File size must be less than 5MB" })
+      return
+    }
+
+    try {
+      setUploading(true)
+      setMessage(null)
+
+      const timestamp = Date.now()
+      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
+      const uploadPath = `user-profiles/user-${timestamp}-${sanitizedFileName}`
+      const contentType = file.type || "image/jpeg"
+
+      const endpoint = "https://srv.digitalmadrasa.co.in/api/v1"
+      const uploadUrl = `${endpoint}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
+
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        body: file,
+      })
+
+      if (!uploadResponse.ok) {
+        const errorData = await uploadResponse.json()
+        throw new Error(errorData.error || "Upload failed")
+      }
+
+      const imageUrl = `https://cdn.digitalmadrasa.co.in/${uploadPath}`
+      setProfileData({ ...profileData, profile_pic_url: imageUrl })
+      setMessage({ type: "success", text: "Profile picture uploaded successfully" })
+    } catch (error) {
+      console.error("Upload error:", error)
+      setMessage({ type: "error", text: "Failed to upload image" })
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user?.id) return
+
+    try {
+      setSaving(true)
+      setMessage(null)
+
+      const response = await apiClient.put(`/users/${user.id}/settings/profile`, {
+        full_name: profileData.full_name,
+        contact: profileData.contact,
+        country: profileData.country,
+        state: profileData.state,
+        profile_pic_url: profileData.profile_pic_url,
+      })
+
+      if (response.success) {
+        setMessage({ type: "success", text: "Profile updated successfully" })
+      } else {
+        setMessage({ type: "error", text: response.error || "Failed to update profile" })
+      }
+    } catch (error) {
+      console.error("Failed to update profile:", error)
+      setMessage({ type: "error", text: "Failed to update profile" })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handlePasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!user?.id) return
+
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setMessage({ type: "error", text: "New passwords don't match!" })
+      return
+    }
+
+    if (passwordData.newPassword && passwordData.newPassword.length < 8) {
+      setMessage({ type: "error", text: "Password must be at least 8 characters" })
+      return
+    }
+
+    try {
+      setSaving(true)
+      setMessage(null)
+
+      const payload: { password?: string } = {}
+
+      if (passwordData.newPassword) {
+        payload.password = passwordData.newPassword
+      }
+
+      if (Object.keys(payload).length === 0) {
+        setMessage({ type: "error", text: "No changes to save" })
+        setSaving(false)
+        return
+      }
+
+      const response = await apiClient.put(`/users/${user.id}/settings/account`, payload)
+
+      if (response.success) {
+        setMessage({ type: "success", text: "Account settings updated successfully" })
+        setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" })
+      } else {
+        setMessage({ type: "error", text: response.error || "Failed to update account settings" })
+      }
+    } catch (error) {
+      console.error("Failed to update account:", error)
+      setMessage({ type: "error", text: "Failed to update account settings" })
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleDeleteAccount = () => {
@@ -110,102 +263,147 @@ export default function SettingsPage() {
     }
   }
 
+  const getUserInitials = (name: string) => {
+    if (!name) return "U"
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  }
+
+  if (authLoading || loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <Loader2 className="w-8 h-8 animate-spin text-[#0066ff]" />
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
-        <div className="mb-6 sm:mb-8">
-          <h1 className="text-2xl sm:text-3xl lg:text-4xl font-heading font-bold text-[#150101] mb-2">Settings</h1>
-          <p className="text-sm sm:text-base text-gray-600">Manage your affiliate account settings</p>
+        <div className="mb-8">
+          <h1 className="text-3xl sm:text-4xl font-heading font-bold text-[#150101] mb-2">Settings</h1>
+          <p className="text-gray-600">Manage your profile and account preferences</p>
         </div>
 
-        <div className="mb-6 sm:mb-8 overflow-x-auto pb-2">
-          <div className="flex gap-2 p-1 bg-gray-100 rounded-full w-fit min-w-full sm:min-w-0">
-            <button
-              onClick={() => setActiveTab("profile")}
-              className={`flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
-                activeTab === "profile" ? "bg-white text-[#0066ff] shadow-sm" : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              <User className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Profile
-            </button>
-            <button
-              onClick={() => setActiveTab("payment")}
-              className={`flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
-                activeTab === "payment" ? "bg-white text-[#0066ff] shadow-sm" : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Payment
-            </button>
-            <button
-              onClick={() => setActiveTab("account")}
-              className={`flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
-                activeTab === "account" ? "bg-white text-[#0066ff] shadow-sm" : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              <Lock className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-              Account
-            </button>
+        {message && (
+          <div
+            className={`mb-6 p-4 rounded-xl ${
+              message.type === "success"
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-red-50 text-red-700 border border-red-200"
+            }`}
+          >
+            {message.text}
           </div>
+        )}
+
+        <div className="flex gap-2 mb-8 p-1 bg-gray-100 rounded-full w-fit">
+          <button
+            onClick={() => setActiveTab("profile")}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-semibold text-sm transition-all ${
+              activeTab === "profile" ? "bg-white text-[#0066ff] shadow-sm" : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <User className="w-4 h-4" />
+            Profile
+          </button>
+          <button
+            onClick={() => setActiveTab("account")}
+            className={`flex items-center gap-2 px-6 py-2.5 rounded-full font-semibold text-sm transition-all ${
+              activeTab === "account" ? "bg-white text-[#0066ff] shadow-sm" : "text-gray-600 hover:text-gray-900"
+            }`}
+          >
+            <Lock className="w-4 h-4" />
+            Account
+          </button>
         </div>
 
         {/* Profile Settings Tab */}
         {activeTab === "profile" && (
-          <div className="space-y-4 sm:space-y-6">
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 shadow-sm">
-              <h2 className="text-lg sm:text-xl font-heading font-bold text-[#150101] mb-4 sm:mb-6">Profile Photo</h2>
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm">
+              <h2 className="text-xl font-heading font-bold text-[#150101] mb-6">Profile Photo</h2>
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
                 <div className="relative">
-                  <Avatar className="w-20 h-20 sm:w-24 sm:h-24 border-4 border-gray-50">
-                    <AvatarImage src="/placeholder.svg?height=96&width=96" />
-                    <AvatarFallback className="bg-gradient-to-br from-[#0066ff] to-[#0052cc] text-white text-xl sm:text-2xl font-bold">
-                      AA
+                  <Avatar className="w-24 h-24 border-4 border-gray-50">
+                    {profileData.profile_pic_url ? (
+                      <AvatarImage src={profileData.profile_pic_url || "/placeholder.svg"} />
+                    ) : null}
+                    <AvatarFallback className="bg-gradient-to-br from-[#0066ff] to-[#0052cc] text-white text-2xl font-bold">
+                      {getUserInitials(profileData.full_name)}
                     </AvatarFallback>
                   </Avatar>
-                  <button className="absolute -bottom-1 -right-1 w-8 h-8 sm:w-9 sm:h-9 bg-[#0066ff] rounded-full flex items-center justify-center text-white hover:bg-[#0052cc] transition-colors shadow-lg">
-                    <Camera className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                    className="absolute -bottom-1 -right-1 w-9 h-9 bg-[#0066ff] rounded-full flex items-center justify-center text-white hover:bg-[#0052cc] transition-colors shadow-lg disabled:opacity-50"
+                  >
+                    {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
                   </button>
                 </div>
                 <div className="flex-1 text-center sm:text-left">
-                  <p className="text-xs sm:text-sm text-gray-600 mb-3 sm:mb-4">
-                    Upload a clear photo. JPG, PNG (Max 2MB)
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
-                    <Button className="bg-[#0066ff] hover:bg-[#0052cc] rounded-xl text-sm h-10 sm:h-11">
-                      Change Photo
-                    </Button>
+                  <p className="text-sm text-gray-600 mb-4">Upload a clear photo. JPG, PNG (Max 5MB)</p>
+                  <div className="flex flex-wrap gap-3 justify-center sm:justify-start">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      onChange={handleProfilePhotoUpload}
+                      className="hidden"
+                    />
                     <Button
-                      variant="outline"
-                      className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl bg-transparent text-sm h-10 sm:h-11"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={uploading}
+                      className="bg-[#0066ff] hover:bg-[#0052cc] rounded-xl"
                     >
-                      Remove
+                      {uploading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Uploading...
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-4 h-4 mr-2" />
+                          Change Photo
+                        </>
+                      )}
                     </Button>
+                    {profileData.profile_pic_url && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setProfileData({ ...profileData, profile_pic_url: "" })}
+                        className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl bg-transparent"
+                      >
+                        Remove
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 shadow-sm">
-              <h2 className="text-lg sm:text-xl font-heading font-bold text-[#150101] mb-4 sm:mb-6">
-                Personal Information
-              </h2>
-              <form onSubmit={handleProfileUpdate} className="space-y-4 sm:space-y-5">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm">
+              <h2 className="text-xl font-heading font-bold text-[#150101] mb-6">Personal Information</h2>
+              <form onSubmit={handleProfileUpdate} className="space-y-5">
                 <div className="space-y-2">
-                  <Label htmlFor="fullName" className="text-xs sm:text-sm font-semibold text-gray-700">
+                  <Label htmlFor="fullName" className="text-sm font-semibold text-gray-700">
                     Full Name
                   </Label>
                   <Input
                     id="fullName"
                     type="text"
-                    value={profileData.fullName}
-                    onChange={(e) => setProfileData({ ...profileData, fullName: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
+                    value={profileData.full_name}
+                    onChange={(e) => setProfileData({ ...profileData, full_name: e.target.value })}
+                    className="h-12 rounded-xl border-gray-200"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="email" className="text-xs sm:text-sm font-semibold text-gray-700">
+                  <Label htmlFor="email" className="text-sm font-semibold text-gray-700">
                     Email Address
                   </Label>
                   <Input
@@ -213,27 +411,28 @@ export default function SettingsPage() {
                     type="email"
                     value={profileData.email}
                     disabled
-                    className="h-11 sm:h-12 rounded-xl bg-gray-50 border-gray-200 cursor-not-allowed text-sm sm:text-base"
+                    className="h-12 rounded-xl bg-gray-50 border-gray-200 cursor-not-allowed"
                   />
-                  <p className="text-xs text-gray-500">Email cannot be changed</p>
+                  <p className="text-xs text-gray-500">Email can be changed in Account settings</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="contactNumber" className="text-xs sm:text-sm font-semibold text-gray-700">
+                  <Label htmlFor="contactNumber" className="text-sm font-semibold text-gray-700">
                     Contact Number
                   </Label>
                   <Input
                     id="contactNumber"
                     type="tel"
-                    value={profileData.contactNumber}
-                    onChange={(e) => setProfileData({ ...profileData, contactNumber: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
+                    value={profileData.contact}
+                    onChange={(e) => setProfileData({ ...profileData, contact: e.target.value })}
+                    className="h-12 rounded-xl border-gray-200"
+                    placeholder="+91 9876543210"
                   />
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid sm:grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="country" className="text-xs sm:text-sm font-semibold text-gray-700">
+                    <Label htmlFor="country" className="text-sm font-semibold text-gray-700">
                       Country
                     </Label>
                     <Input
@@ -241,19 +440,19 @@ export default function SettingsPage() {
                       type="text"
                       value={profileData.country}
                       disabled
-                      className="h-11 sm:h-12 rounded-xl bg-gray-50 border-gray-200 text-sm sm:text-base"
+                      className="h-12 rounded-xl bg-gray-50 border-gray-200"
                     />
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="state" className="text-xs sm:text-sm font-semibold text-gray-700">
+                    <Label htmlFor="state" className="text-sm font-semibold text-gray-700">
                       State
                     </Label>
                     <Select
                       value={profileData.state}
                       onValueChange={(value) => setProfileData({ ...profileData, state: value })}
                     >
-                      <SelectTrigger className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base">
+                      <SelectTrigger className="h-12 rounded-xl border-gray-200">
                         <SelectValue placeholder="Select State" />
                       </SelectTrigger>
                       <SelectContent>
@@ -267,200 +466,16 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-2 sm:pt-4">
-                  <Button
-                    type="submit"
-                    className="bg-[#0066ff] hover:bg-[#0052cc] px-6 sm:px-8 rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                  >
-                    Save Changes
-                  </Button>
-                </div>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {activeTab === "payment" && (
-          <div className="space-y-4 sm:space-y-6">
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 shadow-sm">
-              <h2 className="text-lg sm:text-xl font-heading font-bold text-[#150101] mb-4 sm:mb-6">KYC Details</h2>
-              <form onSubmit={handlePaymentUpdate} className="space-y-4 sm:space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="fullAddress" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Full Address
-                  </Label>
-                  <Input
-                    id="fullAddress"
-                    type="text"
-                    value={paymentData.fullAddress}
-                    onChange={(e) => setPaymentData({ ...paymentData, fullAddress: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="House/Flat No, Building Name, Street"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city" className="text-xs sm:text-sm font-semibold text-gray-700">
-                      City
-                    </Label>
-                    <Input
-                      id="city"
-                      type="text"
-                      value={paymentData.city}
-                      onChange={(e) => setPaymentData({ ...paymentData, city: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                      placeholder="Enter city"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="paymentState" className="text-xs sm:text-sm font-semibold text-gray-700">
-                      State
-                    </Label>
-                    <Select
-                      value={paymentData.state}
-                      onValueChange={(value) => setPaymentData({ ...paymentData, state: value })}
-                    >
-                      <SelectTrigger className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base">
-                        <SelectValue placeholder="Enter state" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {INDIAN_STATES.map((state) => (
-                          <SelectItem key={state} value={state}>
-                            {state}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="pincode" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Pincode
-                  </Label>
-                  <Input
-                    id="pincode"
-                    type="text"
-                    value={paymentData.pincode}
-                    onChange={(e) => setPaymentData({ ...paymentData, pincode: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="Enter 6-digit pincode"
-                    maxLength={6}
-                  />
-                </div>
-
-                <div className="flex justify-end pt-2 sm:pt-4">
-                  <Button
-                    type="submit"
-                    className="bg-[#0066ff] hover:bg-[#0052cc] px-6 sm:px-8 rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                  >
-                    Save KYC Details
-                  </Button>
-                </div>
-              </form>
-            </div>
-
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 shadow-sm">
-              <h2 className="text-lg sm:text-xl font-heading font-bold text-[#150101] mb-2">Payout Details</h2>
-              <p className="text-xs sm:text-sm text-gray-600 mb-4 sm:mb-6">
-                Enter your bank account details to receive payments. Processing time: 3-5 business days.
-              </p>
-              <form onSubmit={handlePaymentUpdate} className="space-y-4 sm:space-y-5">
-                <div className="space-y-2">
-                  <Label htmlFor="accountHolderName" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Account Holder Name
-                  </Label>
-                  <Input
-                    id="accountHolderName"
-                    type="text"
-                    value={paymentData.accountHolderName}
-                    onChange={(e) => setPaymentData({ ...paymentData, accountHolderName: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="Enter full name as per bank account"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="accountNumber" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Account Number
-                  </Label>
-                  <Input
-                    id="accountNumber"
-                    type="text"
-                    value={paymentData.accountNumber}
-                    onChange={(e) => setPaymentData({ ...paymentData, accountNumber: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="Enter account number"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="confirmAccountNumber" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Confirm Account Number
-                  </Label>
-                  <Input
-                    id="confirmAccountNumber"
-                    type="text"
-                    value={paymentData.confirmAccountNumber}
-                    onChange={(e) => setPaymentData({ ...paymentData, confirmAccountNumber: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="Re-enter account number"
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="ifscCode" className="text-xs sm:text-sm font-semibold text-gray-700">
-                      IFSC Code
-                    </Label>
-                    <Input
-                      id="ifscCode"
-                      type="text"
-                      value={paymentData.ifscCode}
-                      onChange={(e) => setPaymentData({ ...paymentData, ifscCode: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                      placeholder="e.g., SBIN0001234"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="branchName" className="text-xs sm:text-sm font-semibold text-gray-700">
-                      Branch Name
-                    </Label>
-                    <Input
-                      id="branchName"
-                      type="text"
-                      value={paymentData.branchName}
-                      onChange={(e) => setPaymentData({ ...paymentData, branchName: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                      placeholder="Enter branch name"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="upiAddress" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    UPI / VPA Address (Optional)
-                  </Label>
-                  <Input
-                    id="upiAddress"
-                    type="text"
-                    value={paymentData.upiAddress}
-                    onChange={(e) => setPaymentData({ ...paymentData, upiAddress: e.target.value })}
-                    className="h-11 sm:h-12 rounded-xl border-gray-200 text-sm sm:text-base"
-                    placeholder="yourname@upi"
-                  />
-                  <p className="text-xs text-gray-500">For faster payments via UPI</p>
-                </div>
-
-                <div className="flex justify-end pt-2 sm:pt-4">
-                  <Button
-                    type="submit"
-                    className="bg-[#0066ff] hover:bg-[#0052cc] px-6 sm:px-8 rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                  >
-                    Save Payout Details
+                <div className="flex justify-end pt-4">
+                  <Button type="submit" disabled={saving} className="bg-[#0066ff] hover:bg-[#0052cc] px-8 rounded-xl">
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      "Save Changes"
+                    )}
                   </Button>
                 </div>
               </form>
@@ -470,39 +485,35 @@ export default function SettingsPage() {
 
         {/* Account Settings Tab */}
         {activeTab === "account" && (
-          <div className="space-y-4 sm:space-y-6">
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-gray-100 shadow-sm">
-              <h2 className="text-lg sm:text-xl font-heading font-bold text-[#150101] mb-4 sm:mb-6">Change Password</h2>
-              <form onSubmit={handlePasswordChange} className="space-y-4 sm:space-y-5">
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm">
+              <h2 className="text-xl font-heading font-bold text-[#150101] mb-6">Email Address</h2>
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="currentPassword" className="text-xs sm:text-sm font-semibold text-gray-700">
-                    Current Password
+                  <Label htmlFor="email" className="text-sm font-semibold text-gray-700">
+                    Current Email
                   </Label>
-                  <div className="relative">
-                    <Input
-                      id="currentPassword"
-                      type={showCurrentPassword ? "text" : "password"}
-                      value={passwordData.currentPassword}
-                      onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 pr-12 text-sm sm:text-base"
-                      placeholder="Enter current password"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
-                      className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                    >
-                      {showCurrentPassword ? (
-                        <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                      ) : (
-                        <Eye className="w-4 h-4 sm:w-5 sm:h-5" />
-                      )}
-                    </button>
-                  </div>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={profileData.email}
+                    disabled
+                    className="h-12 rounded-xl border-gray-200 bg-gray-50 cursor-not-allowed"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Email cannot be changed. Contact support if you need to update your email.
+                  </p>
                 </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm">
+              <h2 className="text-xl font-heading font-bold text-[#150101] mb-6">Change Password</h2>
+              <form onSubmit={handlePasswordChange} className="space-y-5">
+                
 
                 <div className="space-y-2">
-                  <Label htmlFor="newPassword" className="text-xs sm:text-sm font-semibold text-gray-700">
+                  <Label htmlFor="newPassword" className="text-sm font-semibold text-gray-700">
                     New Password
                   </Label>
                   <div className="relative">
@@ -511,26 +522,22 @@ export default function SettingsPage() {
                       type={showNewPassword ? "text" : "password"}
                       value={passwordData.newPassword}
                       onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 pr-12 text-sm sm:text-base"
+                      className="h-12 rounded-xl border-gray-200 pr-12"
                       placeholder="Enter new password"
                     />
                     <button
                       type="button"
                       onClick={() => setShowNewPassword(!showNewPassword)}
-                      className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
-                      {showNewPassword ? (
-                        <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                      ) : (
-                        <Eye className="w-4 h-4 sm:w-5 sm:h-5" />
-                      )}
+                      {showNewPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-500">Must be at least 8 characters with letters and numbers</p>
+                  <p className="text-xs text-gray-500">Minimum 8 characters</p>
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="confirmPassword" className="text-xs sm:text-sm font-semibold text-gray-700">
+                  <Label htmlFor="confirmPassword" className="text-sm font-semibold text-gray-700">
                     Confirm New Password
                   </Label>
                   <div className="relative">
@@ -539,75 +546,35 @@ export default function SettingsPage() {
                       type={showConfirmPassword ? "text" : "password"}
                       value={passwordData.confirmPassword}
                       onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
-                      className="h-11 sm:h-12 rounded-xl border-gray-200 pr-12 text-sm sm:text-base"
-                      placeholder="Re-enter new password"
+                      className="h-12 rounded-xl border-gray-200 pr-12"
+                      placeholder="Confirm new password"
                     />
                     <button
                       type="button"
                       onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                      className="absolute right-3 sm:right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
-                      {showConfirmPassword ? (
-                        <EyeOff className="w-4 h-4 sm:w-5 sm:h-5" />
-                      ) : (
-                        <Eye className="w-4 h-4 sm:w-5 sm:h-5" />
-                      )}
+                      {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                     </button>
                   </div>
                 </div>
 
-                <div className="flex justify-end pt-2 sm:pt-4">
-                  <Button
-                    type="submit"
-                    className="bg-[#0066ff] hover:bg-[#0052cc] px-6 sm:px-8 rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                  >
-                    Update Password
+                <div className="flex justify-end pt-4">
+                  <Button type="submit" disabled={saving} className="bg-[#0066ff] hover:bg-[#0052cc] px-8 rounded-xl">
+                    {saving ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      "Update Account"
+                    )}
                   </Button>
                 </div>
               </form>
             </div>
 
-            <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 border border-red-100 shadow-sm">
-              <div className="flex items-start gap-3 sm:gap-4 mb-4 sm:mb-6">
-                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
-                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-red-600" />
-                </div>
-                <div>
-                  <h2 className="text-lg sm:text-xl font-heading font-bold text-red-600 mb-2">Delete Account</h2>
-                  <p className="text-xs sm:text-sm text-gray-600">
-                    Once you delete your account, there is no going back. All your data, earnings, and referrals will be
-                    permanently removed.
-                  </p>
-                </div>
-              </div>
-
-              {showDeleteConfirm && (
-                <div className="mb-4 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-xl">
-                  <p className="text-xs sm:text-sm text-red-800 font-semibold">
-                    Are you absolutely sure? This action cannot be undone.
-                  </p>
-                </div>
-              )}
-
-              <div className="flex flex-col sm:flex-row gap-3">
-                <Button
-                  onClick={handleDeleteAccount}
-                  variant="outline"
-                  className="bg-red-600 text-white border-red-600 hover:bg-red-700 hover:text-white rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                >
-                  {showDeleteConfirm ? "Confirm Delete Account" : "Delete My Account"}
-                </Button>
-                {showDeleteConfirm && (
-                  <Button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    variant="outline"
-                    className="rounded-xl text-sm h-10 sm:h-11 w-full sm:w-auto"
-                  >
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            </div>
+            
           </div>
         )}
       </div>

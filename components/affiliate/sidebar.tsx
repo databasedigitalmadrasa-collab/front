@@ -14,6 +14,7 @@ import {
   GraduationCap,
   Wallet,
   BookOpen,
+  Settings2Icon,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUserAuth } from "@/hooks/use-user-auth"
@@ -38,6 +39,10 @@ export function AffiliateSidebar({ isOpen = true, onClose }: AffiliateSidebarPro
   ]
 
   const bottomNavItems = [
+
+    { name: "Settings", icon: Settings2Icon, href: "/affiliate/settings" },
+
+
     { name: "Support", icon: HelpCircle, href: "/affiliate/support" },
   ]
 
