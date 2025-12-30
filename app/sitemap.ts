@@ -2,7 +2,7 @@ import { MetadataRoute } from 'next'
 import { getCourses } from '@/lib/api'
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-    const baseUrl = 'https://digitalmadrasa.co.in'
+    const baseUrl = 'https://digitalmadrasa.in'
 
     // Static routes
     const routes = [
