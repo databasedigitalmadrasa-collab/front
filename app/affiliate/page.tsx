@@ -31,7 +31,7 @@ export default function AffiliateDashboard() {
   const { toast } = useToast()
 
   const referralCode = user?.affiliate?.referral_code || "LOADING"
-  const referralLink = user?.affiliate?.referral_link || `https://digitalmadarsa.in/ref/${referralCode}`
+  const referralLink = user?.affiliate?.referral_link || `https://digitalmadrasa.in/ref/${referralCode}`
 
   // Fetch full affiliate stats
   useEffect(() => {
