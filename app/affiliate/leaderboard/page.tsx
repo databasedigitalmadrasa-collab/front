@@ -11,6 +11,7 @@ interface LeaderboardItem {
   user_id: number
   full_name: string
   email: string
+  profile_pic_url: string | null
   total_conversions: number
   total_referral_amount_cents: number
   total_commission_cents: number
@@ -112,8 +113,8 @@ export default function LeaderboardPage() {
                   key={p}
                   onClick={() => setPeriod(p)}
                   className={`px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium transition-all ${period === p
-                      ? "bg-white text-[#0066ff]"
-                      : "bg-white/20 text-white hover:bg-white/30"
+                    ? "bg-white text-[#0066ff]"
+                    : "bg-white/20 text-white hover:bg-white/30"
                     }`}
                 >
                   {getPeriodLabel(p)}
@@ -152,8 +153,8 @@ export default function LeaderboardPage() {
                       <div
                         key={affiliate.affiliate_id}
                         className={`flex items-center justify-between p-3 sm:p-4 rounded-xl border transition-all ${rank <= 3
-                            ? "bg-gradient-to-r from-[#0066ff]/5 to-transparent border-[#0066ff]/20 hover:border-[#0066ff]/40"
-                            : "bg-gray-50/50 border-gray-200 hover:bg-gray-100/50"
+                          ? "bg-gradient-to-r from-[#0066ff]/5 to-transparent border-[#0066ff]/20 hover:border-[#0066ff]/40"
+                          : "bg-gray-50/50 border-gray-200 hover:bg-gray-100/50"
                           }`}
                       >
                         <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
@@ -167,15 +168,22 @@ export default function LeaderboardPage() {
 
                           {/* Avatar */}
                           <Avatar className="h-10 w-10 sm:h-12 sm:w-12 border-2 border-white shadow-sm flex-shrink-0">
+                            {affiliate.profile_pic_url && (
+                              <img
+                                src={affiliate.profile_pic_url}
+                                alt={affiliate.full_name}
+                                className="object-cover w-full h-full"
+                              />
+                            )}
                             <AvatarFallback
                               className={`${rank <= 3 ? "bg-[#0066ff] text-white" : "bg-gray-100 text-gray-700"} font-semibold`}
                             >
-                              {affiliate.full_name
+                              {!affiliate.profile_pic_url && (affiliate.full_name
                                 ?.split(" ")
                                 .map((n) => n[0])
                                 .join("")
                                 .slice(0, 2)
-                                .toUpperCase() || "??"}
+                                .toUpperCase() || "??")}
                             </AvatarFallback>
                           </Avatar>
 
