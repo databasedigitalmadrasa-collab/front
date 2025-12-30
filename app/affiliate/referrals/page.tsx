@@ -100,7 +100,7 @@ export default function ReferralsPage() {
             </p>
           </div>
 
-          <Button
+          {/* <Button
             onClick={copyLink}
             className="bg-white text-[#0066ff] hover:bg-white/90 gap-2 w-full lg:w-auto shadow-lg font-semibold px-4 sm:px-6 text-sm sm:text-base"
           >
@@ -115,7 +115,9 @@ export default function ReferralsPage() {
                 Copy Referral Link
               </>
             )}
-          </Button>
+          </Button> */}
+
+
         </div>
       </div>
 
