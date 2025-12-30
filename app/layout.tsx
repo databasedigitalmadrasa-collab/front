@@ -70,8 +70,8 @@ export default function RootLayout({
     "@context": "https://schema.org",
     "@type": "Organization",
     "name": "Digital Madarsa",
-    "url": "https://digitalmadrasa.co.in",
-    "logo": "https://digitalmadrasa.co.in/logo/logo_icon.png",
+    "url": "https://digitalmadrasa.in",
+    "logo": "https://digitalmadrasa.in/logo/logo_icon.png",
     "sameAs": [
       "https://www.facebook.com/share/1BEuZBeuvQ/?mibextid=wwXIfr",
       "https://www.instagram.com/digitalmadrasa?igsh=enNhanB5OXdiMTR6",
