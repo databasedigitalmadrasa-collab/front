@@ -7,7 +7,7 @@ interface Mentor {
   name: string;
   title: string;
   bio: string;
-  profile_picture: string;
+  profile_picture: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -41,7 +41,8 @@ const Mentors: React.FC = () => {
     fetchMentors();
   }, []);
 
-  const getImageUrl = (path: string) => {
+  const getImageUrl = (path: string | null) => {
+    if (!path) return undefined;
     if (path.startsWith('http')) return path;
     // Assuming relative paths are served from the main server domain if not CDN
     return `https://srv.digitalmadrasa.co.in${path}`;
