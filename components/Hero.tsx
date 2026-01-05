@@ -3,6 +3,7 @@ import React from 'react';
 import Link from 'next/link';
 import { ArrowRight, ChevronRight, Play } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { Dialog, DialogContent, DialogTrigger, DialogTitle } from "@/components/ui/dialog";
 
 // --- Tool Icons Configuration ---
 // Using Simple Icons CDN for verified logos
@@ -109,22 +110,38 @@ const Hero: React.FC = () => {
             transition={{ duration: 0.8, delay: 0.5 }}
             className="order-1 lg:order-2 lg:col-span-7 w-full"
           >
-            <div className="relative aspect-video w-full max-w-2xl mx-auto bg-slate-900 rounded-2xl overflow-hidden shadow-[0_0_60px_-15px_rgba(0,86,255,0.2)] border border-white/10 group cursor-pointer transition-all hover:shadow-[0_0_80px_-20px_rgba(0,86,255,0.4)] mb-4">
-              <img
-                src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1600&auto=format&fit=crop"
-                alt="Digital Madrasa Intro"
-                className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity duration-500"
-              />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-20 h-20 md:w-24 md:h-24 bg-royal-blue/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform duration-300 border border-white/20">
-                  <Play className="w-8 h-8 md:w-10 md:h-10 text-white fill-white ml-1" />
+            <Dialog>
+              <DialogTrigger asChild>
+                <div className="relative aspect-video w-full max-w-2xl mx-auto bg-slate-900 rounded-2xl overflow-hidden shadow-[0_0_60px_-15px_rgba(0,86,255,0.2)] border border-white/10 group cursor-pointer transition-all hover:shadow-[0_0_80px_-20px_rgba(0,86,255,0.4)] mb-4">
+                  <img
+                    src="https://images.unsplash.com/photo-1522202176988-66273c2fd55f?q=80&w=1600&auto=format&fit=crop"
+                    alt="Digital Madrasa Intro"
+                    className="w-full h-full object-cover opacity-60 group-hover:opacity-40 transition-opacity duration-500"
+                  />
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="w-20 h-20 md:w-24 md:h-24 bg-royal-blue/90 backdrop-blur-sm rounded-full flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform duration-300 border border-white/20">
+                      <Play className="w-8 h-8 md:w-10 md:h-10 text-white fill-white ml-1" />
+                    </div>
+                  </div>
+                  <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black/90 to-transparent text-left">
+                    <p className="text-white font-bold text-lg md:text-xl">Watch the Manifesto</p>
+                    <p className="text-slate-400 text-sm">See how we are changing education in India.</p>
+                  </div>
                 </div>
-              </div>
-              <div className="absolute bottom-0 left-0 w-full p-6 bg-gradient-to-t from-black/90 to-transparent text-left">
-                <p className="text-white font-bold text-lg md:text-xl">Watch the Manifesto</p>
-                <p className="text-slate-400 text-sm">See how we are changing education in India.</p>
-              </div>
-            </div>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[800px] bg-black border-white/10 p-0 overflow-hidden">
+                <DialogTitle className="sr-only">Digital Madrasa Manifesto Video</DialogTitle>
+                <div className="aspect-video w-full">
+                  <iframe
+                    className="w-full h-full"
+                    src="https://www.youtube.com/embed/WAdQyEQPAc8?autoplay=1&rel=0"
+                    title="Digital Madrasa Manifesto"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                    allowFullScreen
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
 
             {/* MOBILE CTA (Visible only on Mobile, immediately under video) */}
             <div className="flex lg:hidden flex-col gap-4 items-center w-full mt-2">

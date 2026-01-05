@@ -220,9 +220,8 @@ export default function ManageCoursesPage() {
                   )}
                   <div className="absolute top-4 left-4">
                     <span
-                      className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-lg backdrop-blur-sm ${
-                        isPublished ? "bg-green-500/90 text-white" : "bg-orange-500/90 text-white"
-                      }`}
+                      className={`px-3 py-1.5 rounded-full text-xs font-bold shadow-lg backdrop-blur-sm ${isPublished ? "bg-green-500/90 text-white" : "bg-orange-500/90 text-white"
+                        }`}
                     >
                       {isPublished ? "Published" : "Draft"}
                     </span>

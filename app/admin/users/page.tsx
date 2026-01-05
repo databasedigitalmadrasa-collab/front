@@ -113,10 +113,37 @@ export default function ManageUsersPage() {
   })
   const [isSubscriptionDialogOpen, setIsSubscriptionDialogOpen] = useState(false)
   const [plans, setPlans] = useState<Plan[]>([])
+  const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false)
   const [subscriptionForm, setSubscriptionForm] = useState({
     plan_id: "",
     subscription_type: "monthly",
   })
+
+  // Role Management Handler
+  const handleRoleUpdate = async (action: 'add' | 'remove', role: 'student' | 'affiliate') => {
+    if (!selectedUser) return;
+    setLoading(true);
+    const token = getAuthToken();
+    // Call new API endpoint
+    const response = await apiClient.put<{ user: User }>(`/users/${selectedUser.id}/roles`, { action, role }, token || undefined);
+
+    if (response.success && response.data?.user) {
+      toast({
+        title: "Success",
+        description: `Role ${role} ${action}ed successfully.`
+      });
+      // Update local user state to reflect changes immediately
+      setSelectedUser(response.data.user);
+      setUsers(users.map(u => u.id === response.data!.user.id ? response.data!.user : u));
+    } else {
+      toast({
+        title: "Error",
+        description: response.message || "Failed to update role",
+        variant: "destructive"
+      });
+    }
+    setLoading(false);
+  }
 
   const fetchUsers = async () => {
     setLoading(true)
@@ -651,13 +678,13 @@ export default function ManageUsersPage() {
                               View Details
                             </DropdownMenuItem>
 
-
-                            {!user.is_affiliate && (
-                              <DropdownMenuItem onClick={() => handleConvertToAffiliate(user.id)}>
-                                <UserPlus className="w-4 h-4 mr-2" />
-                                Convert to Affiliate
-                              </DropdownMenuItem>
-                            )}
+                            <DropdownMenuItem onClick={() => {
+                              setSelectedUser(user);
+                              setIsRoleDialogOpen(true);
+                            }}>
+                              <Users className="w-4 h-4 mr-2" />
+                              Manage Roles
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               onClick={() => {
@@ -1060,6 +1087,61 @@ export default function ManageUsersPage() {
               )}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Role Management Dialog */}
+      <Dialog open={isRoleDialogOpen} onOpenChange={setIsRoleDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Manage Roles for {selectedUser?.full_name}</DialogTitle>
+            <DialogDescription>Assign or remove roles for this user.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-blue-500" />
+                  <span className="font-semibold">Student</span>
+                </div>
+                <span className="text-xs text-muted-foreground">Access to learning platform</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedUser?.is_student ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline">Inactive</Badge>}
+                <Button
+                  size="sm"
+                  variant={selectedUser?.is_student ? "destructive" : "default"}
+                  onClick={() => handleRoleUpdate(selectedUser?.is_student ? 'remove' : 'add', 'student')}
+                  disabled={loading}
+                >
+                  {loading && <Loader2 className="w-3 h-3 animate-spin mr-2" />}
+                  {selectedUser?.is_student ? "Remove" : "Add"}
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between p-4 border rounded-lg">
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-purple-500" />
+                  <span className="font-semibold">Affiliate</span>
+                </div>
+                <span className="text-xs text-muted-foreground">Access to affiliate dashboard</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {selectedUser?.is_affiliate ? <Badge className="bg-green-100 text-green-700">Active</Badge> : <Badge variant="outline">Inactive</Badge>}
+                <Button
+                  size="sm"
+                  variant={selectedUser?.is_affiliate ? "destructive" : "default"}
+                  onClick={() => handleRoleUpdate(selectedUser?.is_affiliate ? 'remove' : 'add', 'affiliate')}
+                  disabled={loading}
+                >
+                  {loading && <Loader2 className="w-3 h-3 animate-spin mr-2" />}
+                  {selectedUser?.is_affiliate ? "Remove" : "Add"}
+                </Button>
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
