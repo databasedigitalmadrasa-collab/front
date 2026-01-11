@@ -148,6 +148,10 @@ export default function CourseAccessPage() {
   const [claimedCertId, setClaimedCertId] = useState<string | null>(null)
   const [certLoading, setCertLoading] = useState(false)
 
+  // Action Loading States
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [completingLessonId, setCompletingLessonId] = useState<number | null>(null)
+
   const videoOptions = useMemo(() => ({
     autoplay: false,
     controls: true,
@@ -227,6 +231,7 @@ export default function CourseAccessPage() {
   // API: Force Sync Progress
   const syncProgress = useCallback(async () => {
     try {
+      setSyncLoading(true);
       const user = getUser();
       if (!user) return;
       const res = await fetch(`${API_BASE_URL}/courses/${courseId}/sync`, {
@@ -242,6 +247,7 @@ export default function CourseAccessPage() {
         setCourseStats(json.data);
       }
     } catch (e) { console.error(e); }
+    finally { setSyncLoading(false); }
   }, [courseId]);
 
 
@@ -264,7 +270,7 @@ export default function CourseAccessPage() {
     }
   }, [courseId]);
 
-  // API: Fetch Course Access
+  // API: Fetch Course Access (Optimized Parallel Fetch)
   const fetchCourseAccess = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true)
@@ -275,24 +281,60 @@ export default function CourseAccessPage() {
         return
       }
 
-      const response = await fetch(`${API_BASE_URL}/courses/${courseId}/access?user_id=${user.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      // Parallel Fetch
+      const [accessRes, contentRes, progressRes] = await Promise.all([
+        // 1. Log Access (POST)
+        fetch(`${API_BASE_URL}/courses/${courseId}/log-access?user_id=${user.id}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()),
 
-      const data = await response.json()
+        // 2. Get Content (GET)
+        fetch(`${API_BASE_URL}/courses/${courseId}/content?user_id=${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json()),
 
-      if (data.success && data.data) {
-        // Sort modules and lessons
-        const sortedModules = data.data.modules.sort((a: Module, b: Module) => a.position - b.position).map((m: Module) => ({
-          ...m,
-          lessons: m.lessons.sort((a, b) => a.position - b.position)
-        }));
+        // 3. Get User Progress List (GET)
+        fetch(`${API_BASE_URL}/courses/${courseId}/user-progress-list?user_id=${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }).then(r => r.json())
+      ]);
 
-        const sortedData = { ...data.data, modules: sortedModules };
-        setCourseData(sortedData)
-      } else {
-        throw new Error(data.message || "Failed to load course")
+      if (!contentRes.success || !contentRes.data) {
+        throw new Error(contentRes.error || "Failed to load course content");
       }
+
+      const { course, modules } = contentRes.data;
+      const progressList = progressRes.success ? (progressRes.items || []) : [];
+      const learnerStat = accessRes.success ? accessRes.data : null;
+
+      // Stitch Data
+      // Map progress to lessons
+      const progressMap = new Map();
+      progressList.forEach((p: any) => progressMap.set(p.lesson_id, p));
+
+      // Attach progress to lessons
+      const stitchedModules = modules.map((m: any) => ({
+        ...m,
+        lessons: m.lessons.map((l: any) => ({
+          ...l,
+          user_progress: progressMap.get(l.id) || null,
+          completed: progressMap.get(l.id)?.completed || 0
+        }))
+      }));
+
+      // Sort
+      const sortedModules = stitchedModules.sort((a: Module, b: Module) => a.position - b.position).map((m: Module) => ({
+        ...m,
+        lessons: m.lessons.sort((a: any, b: any) => a.position - b.position)
+      }));
+
+      setCourseData({
+        course,
+        modules: sortedModules,
+        learner_stat: learnerStat
+      });
+
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred")
     } finally {
@@ -431,6 +473,7 @@ export default function CourseAccessPage() {
   // API: Mark Complete & Auto-Advance
   const markLessonAsCompleted = async (lessonId: number) => {
     try {
+      setCompletingLessonId(lessonId);
       const user = getUser();
       const token = getUserToken();
       if (!user || !token) return;
@@ -489,6 +532,8 @@ export default function CourseAccessPage() {
 
     } catch (err) {
       console.error("Error marking lesson complete:", err);
+    } finally {
+      setCompletingLessonId(null);
     }
   };
 
@@ -628,8 +673,8 @@ export default function CourseAccessPage() {
         </div>
         <Progress value={getProgressPercentage()} className="h-2 bg-gray-200" />
         <div className="mt-2 text-xs text-gray-500 text-right flex justify-between items-center">
-          <button onClick={syncProgress} className="flex items-center gap-1 text-gray-400 hover:text-[#0066ff] transition">
-            <RefreshCw className="w-3 h-3" /> Sync
+          <button onClick={syncProgress} disabled={syncLoading} className="flex items-center gap-1 text-gray-400 hover:text-[#0066ff] transition disabled:opacity-50">
+            <RefreshCw className={`w-3 h-3 ${syncLoading ? 'animate-spin text-[#0066ff]' : ''}`} /> {syncLoading ? 'Syncing...' : 'Sync'}
           </button>
           <span>
             {courseStats ? (
@@ -799,10 +844,13 @@ export default function CourseAccessPage() {
               {currentLesson && (
                 <button
                   onClick={() => markLessonAsCompleted(currentLesson.id)}
+                  disabled={completingLessonId === currentLesson.id}
                   className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition shadow-sm ${currentLesson.completed ? 'bg-green-100 text-green-700' : 'bg-[#0066ff] text-white hover:bg-blue-700'
-                    }`}
+                    } disabled:opacity-70 disabled:cursor-not-allowed`}
                 >
-                  {currentLesson.completed ? (
+                  {completingLessonId === currentLesson.id ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Processing...</>
+                  ) : currentLesson.completed ? (
                     <><CheckCircle2 className="w-5 h-5" /> Completed</>
                   ) : (
                     <><Check className="w-5 h-5" /> Mark as Completed</>

@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { Plus_Jakarta_Sans, Inter } from "next/font/google"
 import Script from "next/script"
 import "./globals.css"
+import SecurityProvider from "@/components/security-provider"
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -85,6 +86,7 @@ export default function RootLayout({
         <Script src="https://mercury.phonepe.com/web/bundle/checkout.js" strategy="beforeInteractive" />
       </head>
       <body className={`${plusJakartaSans.variable} ${inter.variable} font-body antialiased`}>
+        <SecurityProvider />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
