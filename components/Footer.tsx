@@ -53,7 +53,7 @@ const Footer: React.FC = () => {
 
         <div className="border-t border-white/10 pt-8 flex flex-col md:flex-row justify-between items-center text-sm gap-4 md:gap-0">
           <div className="flex flex-col md:flex-row items-center gap-2 md:gap-4">
-            <p>© 2025 Digital Madrasa. All rights reserved.</p>
+            <p>© {new Date().getFullYear()} Digital Madrasa. All rights reserved.</p>
             <span className="hidden md:inline text-slate-700">|</span>
             <p>
               Developed by <a href="https://wemstudios.in/" target="_blank" rel="noopener noreferrer" className="text-white hover:text-[#0066ff] transition-colors font-medium">WEM Studios</a>
