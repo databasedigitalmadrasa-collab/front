@@ -621,7 +621,7 @@ export default function CourseAccessPage() {
   // --- Render Helpers ---
 
   const getProgressPercentage = () => {
-    if (courseStats && courseStats.total_lessons > 0) {
+    if (courseStats && courseStats.total_lessons > 0 && typeof courseStats.completed_lessons === 'number') {
       return Math.round((courseStats.completed_lessons / courseStats.total_lessons) * 100);
     }
     return 0;
