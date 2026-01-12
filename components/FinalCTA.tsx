@@ -86,7 +86,7 @@ const FinalCTA: React.FC = () => {
 
             <ul className="space-y-3 mb-8 text-left w-full max-w-sm mx-auto relative z-10">
               {[
-                "Learn 5 Skills + All Upcoming Skills for 1 Full Year",
+                "Learn 5 Skills + All Future Skills for 1 Full Year",
                 "Become Skill-Ready + AI-Ready for 2026",
                 "Dedicated AI Modules in every skill",
                 "International-standard curriculum",

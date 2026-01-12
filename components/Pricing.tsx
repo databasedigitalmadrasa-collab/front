@@ -46,7 +46,7 @@ const Pricing: React.FC = () => {
                   <div className="text-6xl md:text-8xl font-semibold text-navyBlack tracking-tighter leading-none mb-2">
                     ₹7,499
                   </div>
-                  <div className="text-xl md:text-2xl font-bold text-royalBlue mb-1">
+                  <div className="text-xl md:text-2xl text-blue-600  font-bold text-royalBlue mb-1">
                     Just ₹625/month
                   </div>
                   <p className="text-slate-400 text-xs font-medium uppercase tracking-widest">Billed Annually • Full Platform Access</p>
