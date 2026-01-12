@@ -70,18 +70,23 @@ const FinalCTA: React.FC = () => {
             </h3>
             <p className="text-blue-200 text-sm mb-6 relative z-10">Start Building Your Digital Career Today</p>
 
-            <div className="mb-6 relative z-10 border-b border-[#0056FF]/20 pb-6 w-full">
-              <p className="text-4xl md:text-5xl font-bold text-[#0056FF] mb-2">₹5,988</p>
-              <p className="text-slate-400 text-sm">/ Year (Just ₹499/mo)</p>
-              <p className="text-red-500 font-bold text-sm mt-2 line-through decoration-2 opacity-90">Standard Price Rs 7499/Year</p>
+
+            <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
+              <p className="text-4xl text-white md:text-5xl font-bold text-royalBlue mb-2">₹7,499</p>
+              <p className="text-slate-400 text-sm">/ Year (Just ₹625/month)</p>
+
+              <p className="text-white text-xs font-bold mt-2 uppercase tracking-wide">
+                Standard Pricing is Now Live
+              </p>
+
               <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full mt-3 border border-green-500/20 uppercase tracking-wide">
-                Launch Offer: 20% OFF
+                FULL PLATFORM ACCESS — 1 YEAR
               </div>
             </div>
 
             <ul className="space-y-3 mb-8 text-left w-full max-w-sm mx-auto relative z-10">
               {[
-                "Learn 5 Skills + All Future Skills for 1 Full Year",
+                "Learn 5 Skills + All Upcoming Skills for 1 Full Year",
                 "Become Skill-Ready + AI-Ready for 2026",
                 "Dedicated AI Modules in every skill",
                 "International-standard curriculum",
