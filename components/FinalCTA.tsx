@@ -72,15 +72,16 @@ const FinalCTA: React.FC = () => {
 
 
             <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
-              <p className="text-4xl text-white md:text-5xl font-bold text-royalBlue mb-2">₹7,499</p>
-              <p className="text-slate-400 text-sm">/ Year (Just ₹625/month)</p>
+              <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">₹5,988</p>
+              <p className="text-slate-400 text-sm">/ Year (Just ₹499/month)</p>
+
 
               <p className="text-white text-xs font-bold mt-2 uppercase tracking-wide">
-                Standard Pricing is Now Live
+                DIGITAL REPUBLIC SALE IS LIVE
               </p>
 
               <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full mt-3 border border-green-500/20 uppercase tracking-wide">
-                FULL PLATFORM ACCESS — 1 YEAR
+                REPUBLIC SALE · LIMITED TIME
               </div>
             </div>
 
