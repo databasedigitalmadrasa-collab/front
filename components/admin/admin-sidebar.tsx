@@ -20,6 +20,7 @@ import {
   Activity,
   Gift,
   Bell,
+  MessageSquare,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
@@ -39,26 +40,33 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
     { name: "Media Library", icon: Upload, href: "/admin/media" },
 
     // Admin & User Management
+    { name: "User Management", icon: null, href: "#" },
     { name: "Manage Admins", icon: UserCog, href: "/admin/admins" },
     { name: "Manage Users", icon: Users, href: "/admin/users" },
     { name: "Manage KYC", icon: Users, href: "/admin/manage-kyc" },
     { name: "Manage Mentors", icon: Award, href: "/admin/mentors" },
 
     // Business Management
+    { name: "Business", icon: null, href: "#" },
     { name: "Manage Plans", icon: ClipboardList, href: "/admin/plans" },
     { name: "Manage Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
     { name: "Payout Requests", icon: TrendingUp, href: "/admin/payouts" },
 
     // Support & Engagement
+    { name: "Growth & Support", icon: null, href: "#" },
     { name: "Support Requests", icon: AlertCircle, href: "/admin/support-requests" },
+    { name: "Affiliates", icon: Users, href: "/admin/affiliates" },
     { name: "Referrals", icon: Gift, href: "/admin/referrals" },
 
     // Content Management
+    { name: "Content", icon: null, href: "#" },
     { name: "Certificates", icon: Award, href: "/admin/certificates" },
-    { name: "Platform Updates", icon: Bell, href: "/admin/platform-updates" }, // Added Platform Updates navigation item
+    { name: "Platform Updates", icon: Bell, href: "/admin/platform-updates" },
+    { name: "Testimonials", icon: MessageSquare, href: "/admin/testimonials" },
     { name: "Logs", icon: Activity, href: "/admin/logs" },
 
     // Settings
+    { name: "System", icon: null, href: "#" },
     { name: "Settings", icon: Settings, href: "/admin/settings" },
   ]
 
@@ -105,6 +113,13 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
 
         <nav className="flex-1 p-4 overflow-y-auto">
           {navItems.map((item) => {
+            if (!item.icon) {
+              return (
+                <div key={item.name} className="px-4 py-2 mt-4 mb-2 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                  {item.name}
+                </div>
+              )
+            }
             const Icon = item.icon
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/")
             return (
