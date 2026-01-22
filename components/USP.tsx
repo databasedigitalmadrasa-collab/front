@@ -1,7 +1,11 @@
 
-import React from 'react';
+'use client';
+
 import Link from 'next/link';
-import { Zap, Target, CheckCircle2, XCircle, Rocket } from 'lucide-react';
+import { Zap, Target, CheckCircle2, XCircle, Rocket, Star } from 'lucide-react';
+import { apiClient } from '../lib/api-client';
+
+import React, { useState, useEffect } from 'react';
 
 // --- Real AI Brand Logos (SVG Paths with Brand Colors) ---
 
@@ -120,7 +124,50 @@ const LogoItem: React.FC<{ name: string; Icon: React.FC<React.SVGProps<SVGSVGEle
    </div>
 );
 
+// --- Review Component ---
+const FeedbackCard: React.FC<{ takeaway: string; text: string; name: string; tag: string; avatar: string }> = ({ takeaway, text, name, tag, avatar }) => (
+   <div className="bg-[#0f111a] border border-white/5 p-8 rounded-[2rem] flex flex-col justify-between h-full min-h-[400px] transition-all duration-500 hover:border-royalBlue/30 hover:shadow-2xl hover:shadow-royalBlue/10 group">
+      <div>
+         <div className="flex gap-1.5 mb-8">
+            {[1, 2, 3, 4, 5].map((s) => (
+               <Star key={s} size={16} className="fill-[#0056D2] text-[#0056D2]" />
+            ))}
+         </div>
+         <h3 className="text-white font-bold text-xl md:text-2xl mb-4 leading-snug font-heading tracking-tight group-hover:text-[#0056D2] transition-colors duration-300">
+            {takeaway}
+         </h3>
+         <p className="text-slate-400 text-base leading-relaxed mb-8 font-medium">
+            {text}
+         </p>
+      </div>
+      <div className="flex items-center gap-4 mt-auto">
+         <div className="w-12 h-12 rounded-full overflow-hidden border border-white/10 shrink-0 ring-2 ring-transparent group-hover:ring-[#0056D2]/50 transition-all">
+            <img src={avatar} alt={name} className="w-full h-full object-cover" />
+         </div>
+         <div>
+            <h4 className="text-white font-bold text-base tracking-tight">{name}</h4>
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-widest mt-0.5">{tag}</p>
+         </div>
+      </div>
+   </div>
+);
+
 const USP: React.FC = () => {
+   // State initialization moved above to handle feedbacks state
+   // const [activeSlide, setActiveSlide] = useState(0); 
+   // const [isPaused, setIsPaused] = useState(false);
+   // const [isDesktop, setIsDesktop] = useState(true);
+
+   useEffect(() => {
+      const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+
+      if (typeof window !== 'undefined') {
+         handleResize();
+         window.addEventListener('resize', handleResize);
+         return () => window.removeEventListener('resize', handleResize);
+      }
+   }, []);
+
    const aiTools = [
       { name: "ChatGPT", icon: OpenAILogo },
       { name: "Midjourney", icon: MidjourneyLogo },
@@ -138,6 +185,101 @@ const USP: React.FC = () => {
       { name: "Descript", icon: DescriptLogo },
       { name: "Copy.ai", icon: CopyAILogo }
    ];
+
+
+
+
+   interface Testimonial {
+      id: number;
+      name: string;
+      title?: string;
+      testimony: string;
+      rating?: number;
+      profile_pic_url?: string;
+      // ... other backend fields
+   }
+
+   const [activeSlide, setActiveSlide] = useState(0);
+   const [isPaused, setIsPaused] = useState(false);
+   const [isDesktop, setIsDesktop] = useState(true);
+   const [feedbacks, setFeedbacks] = useState<any[]>([]); // Using any[] to match mapped format
+
+   const staticStudentFeedback = [
+      {
+         takeaway: "Well-structured & practical learning.",
+         text: "It has been a very good learning experience with Digital Madrasa. The course content is well-structured, practical, and easy to understand, even for beginners. The lessons are explained clearly and are very helpful for building strong design skills.",
+         name: "Aisha Sami",
+         tag: "Teacher from Uttar Pradesh",
+         avatar: "https://i.pravatar.cc/150?u=aisha"
+      },
+      {
+         takeaway: "Completely worth the investment.",
+         text: "I was hesitating to join digital madrasa but now I think it's completely worth it. From skills to support everything is good. This is so helpful for beginners who wants to learn high income skills and no experience needed. 🩷 if you are a beginner and don't know which skill to learn then don't hesitate to join digital madrasa. It's completely worth.",
+         name: "Sumaiyah Shaheen",
+         tag: "College Student from Andhra Pradesh",
+         avatar: "https://i.pravatar.cc/150?u=sumaiyah"
+      },
+      {
+         takeaway: "Clear, motivating & respectful learning.",
+         text: "Alhamdulillah, this DIGITAL MADRASA has been a great source of learning new technologies for me. The teaching style is clear and motivating, and the environment is respectful and Islamic. I am truly grateful for the knowledge I have gained here. May Allah grant barakah in their efforts.",
+         name: "Tasneem Sultana",
+         tag: "Housewife From Karnataka",
+         avatar: "https://i.pravatar.cc/150?u=tasneem"
+      }];
+
+   useEffect(() => {
+      const fetchTestimonials = async () => {
+         try {
+            const res = await apiClient.get<{ items: Testimonial[] }>('/testimonials?limit=9&featured=true');
+            if (res.success && res.data?.items && res.data.items.length > 0) {
+               const mapped = res.data.items.map((t: Testimonial) => {
+                  // Derive takeaway: use first sentence or truncate
+                  let takeaway = "Student Success Story";
+                  if (t.testimony) {
+                     const sentences = t.testimony.match(/[^\.!\?]+[\.!\?]+/g);
+                     if (sentences && sentences.length > 0) {
+                        takeaway = sentences[0].length > 60 ? sentences[0].substring(0, 57) + "..." : sentences[0];
+                     } else {
+                        takeaway = t.testimony.length > 60 ? t.testimony.substring(0, 57) + "..." : t.testimony;
+                     }
+                  }
+
+                  return {
+                     takeaway: t.title,
+                     text: t.testimony,
+                     name: t.name,
+                     tag: "Verified Student", // Using title from backend if available
+                     avatar: t.profile_pic_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.name)}&background=random`
+                  };
+               });
+               // Fill up to 3 minimum if needed, or just use what we have. 
+               // If we have API data, use it. If very few, maybe mix? For now, replacing logic.
+               setFeedbacks(mapped);
+            } else {
+               setFeedbacks(staticStudentFeedback);
+            }
+         } catch (error) {
+            console.error("Failed to fetch testimonials", error);
+            setFeedbacks(staticStudentFeedback);
+         }
+      };
+
+      fetchTestimonials();
+   }, []);
+
+   const studentFeedback = feedbacks.length > 0 ? feedbacks : staticStudentFeedback;
+
+   const totalDesktopPages = Math.ceil(studentFeedback.length / 3);
+   const totalMobilePages = studentFeedback.length;
+
+   useEffect(() => {
+      if (isPaused) return;
+      const interval = setInterval(() => {
+         setActiveSlide((prev) => (prev + 1) % (isDesktop ? totalDesktopPages : totalMobilePages));
+      }, 5000);
+      return () => clearInterval(interval);
+   }, [isPaused, isDesktop, totalDesktopPages, totalMobilePages]);
+
 
    return (
       <section className="bg-off-white">
@@ -269,6 +411,51 @@ const USP: React.FC = () => {
                </div>
             </div>
          </div>
+
+
+
+         <div className="py-24 bg-[#05070a] border-t border-white/5 overflow-hidden">
+            <div className="max-w-7xl mx-auto px-6">
+               <div className="text-center mb-16">
+                  <h2 className="text-4xl md:text-5xl font-bold text-white mb-4 font-heading tracking-tight leading-tight">What Early Students Are Saying</h2>
+                  <p className="text-slate-500 text-sm md:text-base max-w-xl mx-auto tracking-wide">
+                     Real feedback from learners who joined Digital Madrasa during launch.
+                  </p>
+               </div>
+
+               <div
+                  className="relative"
+                  onMouseEnter={() => setIsPaused(true)}
+                  onMouseLeave={() => setIsPaused(false)}
+               >
+                  {/* Desktop Carousel (3 at a time) */}
+                  <div className="hidden md:grid grid-cols-3 gap-8">
+                     {studentFeedback.slice(activeSlide * 3, (activeSlide * 3) + 3).map((feedback, idx) => (
+                        <FeedbackCard key={idx} {...feedback} />
+                     ))}
+                  </div>
+
+                  {/* Mobile Carousel (1 at a time) */}
+                  <div className="md:hidden">
+                     <FeedbackCard {...studentFeedback[activeSlide % studentFeedback.length]} />
+                  </div>
+
+                  {/* Pagination Dots */}
+                  <div className="flex justify-center gap-2 mt-12">
+                     {Array.from({ length: isDesktop ? totalDesktopPages : totalMobilePages }).map((_, i) => (
+                        <button
+                           key={i}
+                           onClick={() => setActiveSlide(i)}
+                           className={`h-2 rounded-full transition-all duration-300 ${activeSlide === i ? 'bg-[#0056D2] w-6' : 'bg-slate-800 w-2 hover:bg-slate-700'
+                              }`}
+                           aria-label={`Go to slide ${i + 1}`}
+                        />
+                     ))}
+                  </div>
+               </div>
+            </div>
+         </div>
+
 
          {/* Comparison Section */}
          <div className="py-24 bg-off-white border-t border-slate-200">
