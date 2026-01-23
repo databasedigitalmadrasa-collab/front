@@ -46,6 +46,7 @@ interface Testimonial {
     id: number
     name: string
     title: string | null
+    designation: string | null
     testimony: string
     rating: number
     profile_pic_url: string | null
@@ -67,6 +68,7 @@ export default function TestimonialsPage() {
     const [formData, setFormData] = useState({
         name: "",
         title: "",
+        designation: "",
         testimony: "",
         rating: 5,
         profile_pic_url: "",
@@ -86,6 +88,7 @@ export default function TestimonialsPage() {
             setFormData({
                 name: editingTestimonial.name,
                 title: editingTestimonial.title || "",
+                designation: editingTestimonial.designation || "",
                 testimony: editingTestimonial.testimony,
                 rating: editingTestimonial.rating,
                 profile_pic_url: editingTestimonial.profile_pic_url || "",
@@ -95,6 +98,7 @@ export default function TestimonialsPage() {
             setFormData({
                 name: "",
                 title: "",
+                designation: "",
                 testimony: "",
                 rating: 5,
                 profile_pic_url: "",
@@ -341,7 +345,7 @@ export default function TestimonialsPage() {
                                                     </AvatarFallback>
                                                 </Avatar>
                                                 <div className="font-semibold text-[#150101] text-sm">{item.name}</div>
-                                                {item.title && <div className="text-xs text-gray-400">{item.title}</div>}
+                                                {item.designation && <div className="text-xs text-gray-400">{item.designation}</div>}
                                             </div>
                                         </TableCell>
                                         <TableCell className="max-w-md">
@@ -467,15 +471,27 @@ export default function TestimonialsPage() {
                                     />
                                 </div>
 
-                                <div className="space-y-2">
-                                    <Label htmlFor="title" className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1">Title / Designation</Label>
-                                    <Input
-                                        id="title"
-                                        placeholder="e.g. Graphic Designer"
-                                        value={formData.title}
-                                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                        className="h-11 rounded-xl border-gray-200 focus:border-blue-500 focus:ring-blue-500/20"
-                                    />
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="title" className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1">Headline (Title)</Label>
+                                        <Input
+                                            id="title"
+                                            placeholder="e.g. Best Course Ever!"
+                                            value={formData.title}
+                                            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                                            className="h-11 rounded-xl border-gray-200 focus:border-blue-500 focus:ring-blue-500/20"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="designation" className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1">Designation</Label>
+                                        <Input
+                                            id="designation"
+                                            placeholder="e.g. Software Engineer"
+                                            value={formData.designation}
+                                            onChange={(e) => setFormData({ ...formData, designation: e.target.value })}
+                                            className="h-11 rounded-xl border-gray-200 focus:border-blue-500 focus:ring-blue-500/20"
+                                        />
+                                    </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">

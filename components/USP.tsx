@@ -193,6 +193,7 @@ const USP: React.FC = () => {
       id: number;
       name: string;
       title?: string;
+      designation?: string;
       testimony: string;
       rating?: number;
       profile_pic_url?: string;
@@ -233,9 +234,9 @@ const USP: React.FC = () => {
             const res = await apiClient.get<{ items: Testimonial[] }>('/testimonials?limit=9&featured=true');
             if (res.success && res.data?.items && res.data.items.length > 0) {
                const mapped = res.data.items.map((t: Testimonial) => {
-                  // Derive takeaway: use first sentence or truncate
-                  let takeaway = "Student Success Story";
-                  if (t.testimony) {
+                  // Derive takeaway: priority to title, else truncate testimony
+                  let takeaway = t.title || "Student Success Story";
+                  if (!t.title && t.testimony) {
                      const sentences = t.testimony.match(/[^\.!\?]+[\.!\?]+/g);
                      if (sentences && sentences.length > 0) {
                         takeaway = sentences[0].length > 60 ? sentences[0].substring(0, 57) + "..." : sentences[0];
@@ -245,10 +246,10 @@ const USP: React.FC = () => {
                   }
 
                   return {
-                     takeaway: t.title,
+                     takeaway: takeaway,
                      text: t.testimony,
                      name: t.name,
-                     tag: "Verified Student", // Using title from backend if available
+                     tag: t.designation || "Verified Student", // Using designation from backend
                      avatar: t.profile_pic_url || `https://ui-avatars.com/api/?name=${encodeURIComponent(t.name)}&background=random`
                   };
                });
