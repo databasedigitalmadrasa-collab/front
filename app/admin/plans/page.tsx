@@ -62,6 +62,9 @@ interface Plan {
   subscription_type: "monthly" | "annual" | "both"
   gst_tax: number
   whats_included?: string[]
+  start_date?: string
+  end_date?: string
+  is_featured?: boolean
   created_at: string
   updated_at: string
 }
@@ -95,6 +98,9 @@ export default function ManagePlansPage() {
     subscription_type: "both" as "monthly" | "annual" | "both",
     gst_tax: "18",
     whats_included: [""],
+    start_date: "",
+    end_date: "",
+    is_featured: false,
   })
 
   useEffect(() => {
@@ -140,6 +146,7 @@ export default function ManagePlansPage() {
       yearly_amount: Number.parseFloat(formData.yearly_amount),
       discounted_amount: formData.discounted_amount ? Number.parseFloat(formData.discounted_amount) : undefined,
       offer_title: formData.offer_title || undefined,
+      is_featured: formData.is_featured,
       currency: formData.currency,
       subscription_type: formData.subscription_type,
       gst_tax: Number.parseFloat(formData.gst_tax),
@@ -190,6 +197,7 @@ export default function ManagePlansPage() {
       yearly_amount: Number.parseFloat(formData.yearly_amount),
       discounted_amount: formData.discounted_amount ? Number.parseFloat(formData.discounted_amount) : undefined,
       offer_title: formData.offer_title || undefined,
+      is_featured: formData.is_featured,
       currency: formData.currency,
       subscription_type: formData.subscription_type,
       gst_tax: Number.parseFloat(formData.gst_tax),
@@ -263,6 +271,9 @@ export default function ManagePlansPage() {
       subscription_type: "both",
       gst_tax: "18",
       whats_included: [""],
+      start_date: "",
+      end_date: "",
+      is_featured: false,
     })
   }
 
@@ -279,6 +290,9 @@ export default function ManagePlansPage() {
       subscription_type: plan.subscription_type,
       gst_tax: plan.gst_tax.toString(),
       whats_included: plan.whats_included && plan.whats_included.length > 0 ? plan.whats_included : [""],
+      start_date: plan.start_date || "",
+      end_date: plan.end_date || "",
+      is_featured: !!plan.is_featured,
     })
     setIsEditDialogOpen(true)
   }
@@ -739,6 +753,28 @@ export default function ManagePlansPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="start_date">Start Date (Offer Timer)</Label>
+                <Input
+                  id="start_date"
+                  type="datetime-local"
+                  value={formData.start_date}
+                  onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="end_date">End Date (Offer Timer)</Label>
+                <Input
+                  id="end_date"
+                  type="datetime-local"
+                  value={formData.end_date}
+                  onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
+                />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label>What's Included</Label>
               {(Array.isArray(formData.whats_included) ? formData.whats_included : [""]).map((item, index) => (
@@ -765,6 +801,14 @@ export default function ManagePlansPage() {
                 <Plus className="h-4 w-4 mr-2" />
                 Add Item
               </Button>
+            </div>
+            <div className="flex items-center space-x-2 pt-2">
+              <Checkbox
+                id="is_featured"
+                checked={formData.is_featured}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_featured: !!checked })}
+              />
+              <Label htmlFor="is_featured">Is Featured Plan?</Label>
             </div>
           </div>
 
