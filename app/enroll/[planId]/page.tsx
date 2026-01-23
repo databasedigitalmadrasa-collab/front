@@ -94,7 +94,7 @@ export default function EnrollPage() {
     contactNumber: "",
     country: "India",
     state: "",
-    couponCode: "DM-2026",
+    couponCode: "",
     password: "",
     referralCode: refFromUrl || "",
   })
@@ -102,6 +102,14 @@ export default function EnrollPage() {
   const [referralStatus, setReferralStatus] = useState<"idle" | "verifying" | "valid" | "invalid">(
     refFromUrl ? "valid" : "idle",
   )
+  const [couponStatus, setCouponStatus] = useState<"idle" | "verifying" | "valid" | "invalid">("idle")
+  const [couponMessage, setCouponMessage] = useState<string>("")
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string;
+    discount_type: 'percentage' | 'fixed';
+    discount_value: number;
+  } | null>(null)
+
   const [isFormValid, setIsFormValid] = useState(false)
   const [isProcessingPayment, setIsProcessingPayment] = useState(false)
   const [verifyingReferral, setVerifyingReferral] = useState(false)
@@ -185,12 +193,23 @@ export default function EnrollPage() {
   const getPlanPricing = (plan: SubscriptionPlan) => {
     const isYearly = plan.subscription_type === "annual"
     const baseAmount = isYearly ? plan.yearly_amount : plan.monthly_amount
-    const discountedAmount = plan.discounted_amount || baseAmount
+    let discountedAmount = plan.discounted_amount || baseAmount
+
+    // Apply Coupon Discount
+    if (appliedCoupon) {
+      if (appliedCoupon.discount_type === 'percentage') {
+        discountedAmount = discountedAmount - (discountedAmount * (appliedCoupon.discount_value / 100));
+      } else {
+        discountedAmount = discountedAmount - appliedCoupon.discount_value;
+      }
+      discountedAmount = Math.max(0, discountedAmount); // Ensure no negative price
+    }
+
     const savings = baseAmount - discountedAmount
 
     return {
       originalPrice: baseAmount,
-      discountedPrice: discountedAmount,
+      discountedPrice: Math.round(discountedAmount), // Return rounded integer for display/payment
       savings: savings,
       monthlyPrice: isYearly ? Math.round(discountedAmount / 12) : discountedAmount,
       isYearly,
@@ -203,6 +222,11 @@ export default function EnrollPage() {
 
     if (field === "referralCode" && referralStatus !== "idle") {
       setReferralStatus("idle")
+    }
+
+    if (field === "couponCode" && couponStatus !== "idle" && couponStatus !== "valid") {
+      setCouponStatus("idle");
+      setCouponMessage("");
     }
 
     // Check if all required fields are filled
@@ -249,6 +273,45 @@ export default function EnrollPage() {
     } finally {
       setVerifyingReferral(false)
     }
+  }
+
+  const handleVerifyCoupon = async () => {
+    const code = formData.couponCode.trim();
+    if (!code) return;
+    if (!planData) return;
+
+    setCouponStatus("verifying");
+    setCouponMessage("");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/coupons/validate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, planId: planData.id })
+      });
+      const data = await res.json();
+
+      if (data.success && data.valid) {
+        setAppliedCoupon(data.coupon);
+        setCouponStatus("valid");
+        setCouponMessage("Coupon applied successfully!");
+      } else {
+        setAppliedCoupon(null);
+        setCouponStatus("invalid");
+        setCouponMessage(data.message || "Invalid coupon code");
+      }
+    } catch (err) {
+      console.error(err);
+      setCouponStatus("invalid");
+      setCouponMessage("Failed to validate coupon");
+    }
+  }
+
+  const removeCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponStatus("idle");
+    setCouponMessage("");
+    handleInputChange("couponCode", "");
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -761,24 +824,57 @@ export default function EnrollPage() {
                     {/* Coupon Code */}
                     <div className="space-y-2">
                       <Label htmlFor="couponCode" className="text-sm font-medium text-slate-700">
-                        Coupon Code
+                        Coupon Code (Optional)
                       </Label>
-                      <div className="relative">
-                        <Tag className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-green-600" />
-                        <Input
-                          id="couponCode"
-                          type="text"
-                          value={formData.couponCode}
-                          readOnly
-                          className="h-10 sm:h-11 pl-10 border-green-200 bg-green-50"
-                        />
-                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                          <span className="inline-flex items-center gap-1 bg-green-600 text-white px-2 py-1 rounded-md text-xs font-medium">
-                            <Check className="w-3 h-3" />
-                            Applied
-                          </span>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <Tag className={`absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 ${couponStatus === 'valid' ? 'text-green-600' : 'text-slate-400'}`} />
+                          <Input
+                            id="couponCode"
+                            type="text"
+                            placeholder="Enter coupon code"
+                            value={formData.couponCode}
+                            onChange={(e) => handleInputChange("couponCode", e.target.value.toUpperCase())}
+                            readOnly={couponStatus === 'valid' || couponStatus === 'verifying'}
+                            className={`h-10 sm:h-11 pl-10 border-slate-200 focus:border-blue-500 focus:ring-blue-500 ${couponStatus === 'valid' ? "border-green-200 bg-green-50" :
+                              couponStatus === 'invalid' ? "border-red-200 bg-red-50" : ""
+                              }`}
+                          />
                         </div>
+                        {couponStatus === 'valid' ? (
+                          <Button
+                            type="button"
+                            onClick={removeCoupon}
+                            variant="outline"
+                            className="h-10 sm:h-11 px-3 border-red-200 text-red-600 hover:bg-red-50"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <Button
+                            type="button"
+                            onClick={handleVerifyCoupon}
+                            disabled={!formData.couponCode || couponStatus === 'verifying'}
+                            variant="outline"
+                            className="h-10 sm:h-11 px-4 sm:px-5 border-slate-200 hover:bg-slate-50 bg-transparent text-sm"
+                          >
+                            {couponStatus === 'verifying' ? <Loader2 className="w-4 h-4 animate-spin" /> : "Apply"}
+                          </Button>
+                        )}
                       </div>
+
+                      {couponStatus === 'valid' && (
+                        <p className="text-sm text-green-600 flex items-center gap-1">
+                          <Check className="w-4 h-4" />
+                          {couponMessage}
+                        </p>
+                      )}
+                      {couponStatus === 'invalid' && (
+                        <p className="text-sm text-red-600 flex items-center gap-1">
+                          <X className="w-4 h-4" />
+                          {couponMessage}
+                        </p>
+                      )}
                     </div>
 
                     {/* Payment Button - Responsive height and text */}

@@ -21,6 +21,17 @@ import QRCode from "qrcode"
 import Image from "next/image"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
+import apiClient from "@/lib/api-client"
+
+interface PromotionalAsset {
+    id: number;
+    title: string;
+    type: 'banner' | 'text' | 'video';
+    content?: string;
+    url?: string;
+    thumbnail_url?: string;
+    is_active: number;
+}
 
 export default function MarketingToolsPage() {
     const { user } = useUserAuth()
@@ -29,6 +40,30 @@ export default function MarketingToolsPage() {
 
     const referralCode = user?.affiliate?.referral_code || "YOUR_CODE"
     const referralLink = `https://digitalmadrasa.in/ref/${referralCode}`
+
+    const [assets, setAssets] = useState<PromotionalAsset[]>([])
+    const [isLoadingAssets, setIsLoadingAssets] = useState(true)
+
+    useEffect(() => {
+        const fetchAssets = async () => {
+            try {
+                const res = await apiClient.get<{ items: PromotionalAsset[] }>('/promotional-assets')
+                // The API returns { success: true, items: [...] } inside res.data
+                if (res.data?.items) {
+                    setAssets(res.data.items)
+                }
+            } catch (err) {
+                console.error("Failed to fetch assets", err)
+            } finally {
+                setIsLoadingAssets(false)
+            }
+        }
+        fetchAssets()
+    }, [])
+
+    const banners = assets.filter(a => a.type === 'banner')
+    const templates = assets.filter(a => a.type === 'text')
+    const videos = assets.filter(a => a.type === 'video')
 
     useEffect(() => {
         if (referralLink) {
@@ -218,77 +253,108 @@ export default function MarketingToolsPage() {
                     </TabsList>
 
                     <TabsContent value="banners" className="mt-0 space-y-8 animate-in fade-in-50 duration-300">
-                        <div className="grid grid-cols-1 sc:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                            {[1, 2, 3, 4].map((i) => (
-                                <div key={i} className="group relative rounded-2xl overflow-hidden bg-gray-50 aspect-[4/5] border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                                    <div className="absolute inset-0 p-6 flex flex-col items-center justify-center text-center bg-gradient-to-b from-transparent to-black/5 z-0">
-                                        <ImageIcon className="w-12 h-12 text-gray-300 mb-3" />
-                                        <p className="text-sm font-medium text-gray-400">Banner Preview {i}</p>
-                                    </div>
+                        {isLoadingAssets ? (
+                            <div className="text-center py-10 text-gray-500">Loading banners...</div>
+                        ) : banners.length === 0 ? (
+                            <div className="text-center py-10 text-gray-400">No banners available yet.</div>
+                        ) : (
+                            <div className="grid grid-cols-1 sc:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                                {banners.map((asset) => (
+                                    <div key={asset.id} className="group relative rounded-2xl overflow-hidden bg-gray-50 aspect-[4/5] border border-gray-100 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
+                                        <div className="absolute inset-0 bg-gray-200">
+                                            {asset.url && (
+                                                <Image
+                                                    src={asset.url}
+                                                    alt={asset.title}
+                                                    fill
+                                                    className="object-cover"
+                                                />
+                                            )}
+                                        </div>
 
-                                    {/* Placeholder content mimicking a real banner */}
-                                    <div className="absolute inset-0 bg-gradient-to-br from-indigo-50/50 to-blue-50/50 -z-10"></div>
-
-                                    <div className="absolute inset-x-0 bottom-0 p-4 bg-white/90 backdrop-blur-md border-t border-white/50 translate-y-full group-hover:translate-y-0 transition-transform duration-300 flex items-center justify-between gap-2">
-                                        <span className="text-xs font-semibold text-gray-900">1080x1350</span>
-                                        <div className="flex gap-2">
-                                            <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-gray-100">
-                                                <ExternalLink className="w-4 h-4 text-gray-600" />
-                                            </Button>
-                                            <Button size="icon" className="h-8 w-8 rounded-lg bg-[#0066ff] text-white hover:bg-blue-600 shadow-sm">
-                                                <Download className="w-4 h-4" />
-                                            </Button>
+                                        <div className="absolute inset-x-0 bottom-0 p-4 bg-white/90 backdrop-blur-md border-t border-white/50 translate-y-full group-hover:translate-y-0 transition-transform duration-300 flex items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold text-gray-900 truncate max-w-[100px]" title={asset.title}>{asset.title}</span>
+                                            <div className="flex gap-2">
+                                                <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-gray-100" onClick={() => window.open(asset.url, '_blank')}>
+                                                    <ExternalLink className="w-4 h-4 text-gray-600" />
+                                                </Button>
+                                                <Button size="icon" className="h-8 w-8 rounded-lg bg-[#0066ff] text-white hover:bg-blue-600 shadow-sm" onClick={() => {
+                                                    const link = document.createElement('a');
+                                                    link.href = asset.url || '';
+                                                    link.download = asset.title || 'banner';
+                                                    link.target = '_blank';
+                                                    document.body.appendChild(link);
+                                                    link.click();
+                                                    document.body.removeChild(link);
+                                                }}>
+                                                    <Download className="w-4 h-4" />
+                                                </Button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </TabsContent>
 
                     <TabsContent value="templates" className="mt-0 animate-in fade-in-50 duration-300">
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {[1, 2, 3].map((i) => (
-                                <Card key={i} className="rounded-2xl border-gray-100 hover:border-blue-200 hover:shadow-md transition-all group cursor-pointer bg-white">
-                                    <CardContent className="p-6">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <Badge variant="outline" className="rounded-md font-normal border-gray-200 bg-gray-50">Social Post</Badge>
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-[#0066ff]">
-                                                <Copy className="w-4 h-4" />
-                                            </Button>
-                                        </div>
-                                        <p className="text-gray-600 text-sm leading-relaxed mb-4">
-                                            "🚀 Take your Islamic studies to the next level with Digital Madrasa! Join a community of thousands of learners. Click the link below to get started! 👇 #{i} #DigitalMadrasa #LearnOnline"
-                                        </p>
-                                        <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
-                                            <div className="h-full bg-blue-500 w-0 group-hover:w-full transition-all duration-500 ease-out"></div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
-                            ))}
-                        </div>
+                        {isLoadingAssets ? (
+                            <div className="text-center py-10 text-gray-500">Loading templates...</div>
+                        ) : templates.length === 0 ? (
+                            <div className="text-center py-10 text-gray-400">No text templates available yet.</div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                {templates.map((asset) => (
+                                    <Card key={asset.id} className="rounded-2xl border-gray-100 hover:border-blue-200 hover:shadow-md transition-all group cursor-pointer bg-white">
+                                        <CardContent className="p-6">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <Badge variant="outline" className="rounded-md font-normal border-gray-200 bg-gray-50">{asset.title}</Badge>
+                                                <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400 group-hover:text-[#0066ff]" onClick={() => {
+                                                    navigator.clipboard.writeText(asset.content || '');
+                                                    toast.success("Template copied!");
+                                                }}>
+                                                    <Copy className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+                                            <p className="text-gray-600 text-sm leading-relaxed mb-4 whitespace-pre-wrap">
+                                                {asset.content}
+                                            </p>
+                                            <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden">
+                                                <div className="h-full bg-blue-500 w-0 group-hover:w-full transition-all duration-500 ease-out"></div>
+                                            </div>
+                                        </CardContent>
+                                    </Card>
+                                ))}
+                            </div>
+                        )}
                     </TabsContent>
 
                     <TabsContent value="videos" className="mt-0 animate-in fade-in-50 duration-300">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {[1, 2].map((i) => (
-                                <div key={i} className="rounded-2xl overflow-hidden bg-gray-900 aspect-video relative group border border-gray-800 shadow-lg">
-                                    <div className="absolute inset-0 bg-cover bg-center opacity-50 transition-opacity group-hover:opacity-40" style={{ backgroundImage: `url('/placeholder/video-thumb-${i}.jpg')` }}></div>
-                                    <div className="absolute inset-0 flex items-center justify-center">
-                                        <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white group-hover:scale-110 group-hover:bg-[#0066ff] group-hover:border-transparent transition-all duration-300 cursor-pointer shadow-2xl">
-                                            <Video className="w-6 h-6 fill-current translate-x-0.5" />
+                        {isLoadingAssets ? (
+                            <div className="text-center py-10 text-gray-500">Loading videos...</div>
+                        ) : videos.length === 0 ? (
+                            <div className="text-center py-10 text-gray-400">No videos available yet.</div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {videos.map((asset) => (
+                                    <div key={asset.id} className="rounded-2xl overflow-hidden bg-gray-900 aspect-video relative group border border-gray-800 shadow-lg">
+                                        <div className="absolute inset-0 bg-cover bg-center opacity-50 transition-opacity group-hover:opacity-40" style={{ backgroundImage: `url('${asset.thumbnail_url || ''}')` }}></div>
+                                        <div className="absolute inset-0 flex items-center justify-center">
+                                            <div className="w-16 h-16 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white group-hover:scale-110 group-hover:bg-[#0066ff] group-hover:border-transparent transition-all duration-300 cursor-pointer shadow-2xl" onClick={() => window.open(asset.url, '_blank')}>
+                                                <Video className="w-6 h-6 fill-current translate-x-0.5" />
+                                            </div>
+                                        </div>
+                                        <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                                            <h3 className="text-white font-heading font-bold text-lg mb-1">{asset.title}</h3>
+                                            <div className="flex items-center gap-3 text-xs text-gray-300">
+                                                <span className="bg-white/10 px-2 py-0.5 rounded text-white">Full HD</span>
+                                                <span>MP4</span>
+                                            </div>
                                         </div>
                                     </div>
-                                    <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
-                                        <h3 className="text-white font-heading font-bold text-lg mb-1">Platform Tour 2024</h3>
-                                        <div className="flex items-center gap-3 text-xs text-gray-300">
-                                            <span className="bg-white/10 px-2 py-0.5 rounded text-white">Full HD</span>
-                                            <span>02:15</span>
-                                            <span>MP4</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
+                                ))}
+                            </div>
+                        )}
                     </TabsContent>
 
                 </Tabs>

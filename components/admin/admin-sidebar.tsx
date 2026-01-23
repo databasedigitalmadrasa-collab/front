@@ -21,6 +21,8 @@ import {
   Gift,
   Bell,
   MessageSquare,
+  ImageIcon,
+  Ticket,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
@@ -50,6 +52,7 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
     { name: "Business", icon: null, href: "#" },
     { name: "Manage Plans", icon: ClipboardList, href: "/admin/plans" },
     { name: "Manage Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
+    { name: "Manage Coupons", icon: Ticket, href: "/admin/coupons" },
     { name: "Payout Requests", icon: TrendingUp, href: "/admin/payouts" },
 
     // Support & Engagement
@@ -57,6 +60,7 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
     { name: "Support Requests", icon: AlertCircle, href: "/admin/support-requests" },
     { name: "Affiliates", icon: Users, href: "/admin/affiliates" },
     { name: "Referrals", icon: Gift, href: "/admin/referrals" },
+    { name: "Promo Assets", icon: ImageIcon, href: "/admin/promotional-assets" },
 
     // Content Management
     { name: "Content", icon: null, href: "#" },
