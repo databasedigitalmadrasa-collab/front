@@ -3,7 +3,40 @@ import React from 'react';
 import { ArrowRight, Check, X, Tv, ShieldCheck } from 'lucide-react';
 import Link from 'next/link';
 
-const FinalCTA: React.FC = () => {
+interface Plan {
+  id: number
+  title: string
+  description: string
+  currency: string
+  monthly_amount: number
+  yearly_amount: number
+  discounted_amount?: number
+  offer_title?: string
+  subscription_type: "monthly" | "annual" | "both"
+  gst_tax: number
+  whats_included?: string[]
+  start_date?: string
+  end_date?: string
+  is_featured?: boolean
+  created_at: string
+  updated_at: string
+}
+
+interface FinalCTAProps {
+  plan?: Plan | null;
+}
+
+const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
+  // Fallback values
+  const finalPrice = plan?.yearly_amount ?? 5988;
+  const monthlyPrice = Math.round(finalPrice / 12);
+  const offerTitle = plan?.offer_title || "DIGITAL REPUBLIC SALE";
+
+  // Format currency helper
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: plan?.currency || 'INR', maximumFractionDigits: 0 }).format(amount);
+  };
+
   return (
     <section className="py-20 bg-[#020617] relative overflow-hidden">
       {/* Background Ambience */}
@@ -72,16 +105,12 @@ const FinalCTA: React.FC = () => {
 
 
             <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
-              <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">₹5,988</p>
-              <p className="text-slate-400 text-sm">/ Year (Just ₹499/month)</p>
+              <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">{formatCurrency(finalPrice)}</p>
+              <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(monthlyPrice)}/month)</p>
 
-
-              <p className="text-white text-xs font-bold mt-2 uppercase tracking-wide">
-                DIGITAL REPUBLIC SALE IS LIVE
-              </p>
 
               <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full mt-3 border border-green-500/20 uppercase tracking-wide">
-                REPUBLIC SALE · LIMITED TIME
+                {offerTitle}
               </div>
             </div>
 
@@ -105,7 +134,7 @@ const FinalCTA: React.FC = () => {
               ))}
             </ul>
 
-            <Link href="/enroll/1" className="w-full py-4 bg-gradient-to-r from-[#0056FF] to-blue-600 hover:to-blue-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-600/25 transition-all hover:scale-[1.02] flex items-center justify-center gap-2 relative z-10 group text-center">
+            <Link href={`/enroll/${plan?.id || 1}`} className="w-full py-4 bg-gradient-to-r from-[#0056FF] to-blue-600 hover:to-blue-500 text-white rounded-xl font-bold text-lg shadow-lg shadow-blue-600/25 transition-all hover:scale-[1.02] flex items-center justify-center gap-2 relative z-10 group text-center">
               Join Digital Madrasa Now <ArrowRight size={20} className="group-hover:translate-x-1 transition-transform" />
             </Link>
 

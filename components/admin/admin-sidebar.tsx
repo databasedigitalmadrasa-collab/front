@@ -58,6 +58,7 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
     // Support & Engagement
     { name: "Growth & Support", icon: null, href: "#" },
     { name: "Support Requests", icon: AlertCircle, href: "/admin/support-requests" },
+    { name: "Affiliate Requests", icon: Users, href: "/admin/affiliate-requests" },
     { name: "Affiliates", icon: Users, href: "/admin/affiliates" },
     { name: "Referrals", icon: Gift, href: "/admin/referrals" },
     { name: "Promo Assets", icon: ImageIcon, href: "/admin/promotional-assets" },

@@ -57,6 +57,7 @@ interface CourseDetails {
 }
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { AffiliateRequestDialog } from "@/components/AffiliateRequestDialog"
 
 export default function StudentDashboard() {
   const { user, token, isLoading: authLoading } = useUserAuth()
@@ -67,6 +68,8 @@ export default function StudentDashboard() {
   const [activityHistory, setActivityHistory] = useState<ActivityHistory[]>([])
   const [continueCourse, setContinueCourse] = useState<CourseDetails | null>(null)
   const [showWelcome, setShowWelcome] = useState(false)
+  const [affiliateRequest, setAffiliateRequest] = useState<any>(null)
+  const [showAffiliateDialog, setShowAffiliateDialog] = useState(false)
 
   // Loading States
   const [loading, setLoading] = useState(true)
@@ -95,12 +98,32 @@ export default function StudentDashboard() {
     }
   }
 
+  const fetchAffiliateRequest = async () => {
+    if (!user?.id) return
+    try {
+      const res = await apiClient.get<any>(`/affiliate-requests/user/${user.id}`)
+      if (res.success && res.data) {
+        setAffiliateRequest(res.data.data || res.data)
+      } else {
+        setAffiliateRequest(null)
+      }
+    } catch (e) {
+      // likely 404 if no request
+      setAffiliateRequest(null)
+    }
+  }
+
   useEffect(() => {
     if (authLoading || !user?.id) return
 
     const fetchAllData = async () => {
       setLoading(true)
       try {
+        // 0. Fetch Affiliate Request
+        if (user.is_affiliate === 0) {
+          await fetchAffiliateRequest()
+        }
+
         // 1. Fetch Stats
         const statsRes = await apiClient.get<{ data: LearnerStats }>(`/learner-stats/${user.id}`)
         let currentStats: LearnerStats | null = null
@@ -283,7 +306,7 @@ export default function StudentDashboard() {
                 </Badge>
               </div>
 
-              {user?.is_affiliate === 1 && (
+              {user?.is_affiliate === 1 ? (
                 <Link href="/affiliate">
                   <Button
                     variant="outline"
@@ -294,6 +317,24 @@ export default function StudentDashboard() {
                     Affiliate Panel
                   </Button>
                 </Link>
+              ) : (
+                <div className="mt-4">
+                  {affiliateRequest?.status === 'pending' ? (
+                    <Badge className="bg-yellow-500/20 text-yellow-100 hover:bg-yellow-500/30 border-0 px-3 py-1 text-sm font-medium">
+                      Request Pending
+                    </Badge>
+                  ) : (
+                    <Button
+                      onClick={() => setShowAffiliateDialog(true)}
+                      variant="outline"
+                      size="sm"
+                      className="bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
+                    >
+                      <Zap className="w-4 h-4" />
+                      Become an Affiliate
+                    </Button>
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -500,6 +541,12 @@ export default function StudentDashboard() {
         </div>
 
       </div>
-    </div>
+      <AffiliateRequestDialog
+        open={showAffiliateDialog}
+        onOpenChange={setShowAffiliateDialog}
+        onSuccess={fetchAffiliateRequest}
+        userId={user?.id || 0}
+      />
+    </div >
   )
 }

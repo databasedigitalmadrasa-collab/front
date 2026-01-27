@@ -22,40 +22,6 @@ import Footer from "@/components/Footer";
 
 export default function DigitalMadarsaLanding() {
   const [isScrolled, setIsScrolled] = useState(false)
-  const [timeLeft, setTimeLeft] = useState({
-    days: 10,
-    hours: 0,
-    minutes: 0,
-    seconds: 0,
-  })
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-
-  useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 50)
-    }
-    window.addEventListener("scroll", handleScroll)
-    return () => window.removeEventListener("scroll", handleScroll)
-  }, [])
-
-  // Countdown timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => {
-        if (prev.seconds > 0) {
-          return { ...prev, seconds: prev.seconds - 1 }
-        } else if (prev.minutes > 0) {
-          return { ...prev, minutes: prev.minutes - 1, seconds: 59 }
-        } else if (prev.hours > 0) {
-          return { ...prev, hours: prev.hours - 1, minutes: 59, seconds: 59 }
-        } else if (prev.days > 0) {
-          return { days: prev.days - 1, hours: 23, minutes: 59, seconds: 59 }
-        }
-        return prev
-      })
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
 
   const tools = [
     "MailChimp",
@@ -191,6 +157,7 @@ export default function DigitalMadarsaLanding() {
   ]
 
   const [activeView, setActiveView] = useState<'home' | 'about'>('home');
+  const [featuredPlan, setFeaturedPlan] = useState<any>(null);
 
   useEffect(() => {
     const handleHashChange = () => {
@@ -208,6 +175,24 @@ export default function DigitalMadarsaLanding() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // Fetch featured plan
+  useEffect(() => {
+    const fetchPlan = async () => {
+      try {
+        const res = await fetch('https://dm-backend.copybykhan.workers.dev/api/v1/subscription-plans');
+        if (res.ok) {
+          const data = await res.json();
+          // Find featured plan or first one
+          const featured = data.items.find((p: any) => p.is_featured) || data.items[0];
+          setFeaturedPlan(featured);
+        }
+      } catch (err) {
+        console.error("Failed to fetch plans", err);
+      }
+    };
+    fetchPlan();
+  }, []);
+
 
   return (
     <div className="min-h-screen flex flex-col w-full bg-offWhite">
@@ -221,10 +206,10 @@ export default function DigitalMadarsaLanding() {
             <USP />
             <Mentors />
             <Benefits />
-            <Pricing />
+            <Pricing plan={featuredPlan} />
             <Certificate />
             <Authority />
-            <FinalCTA />
+            <FinalCTA plan={featuredPlan} />
             <FAQ />
           </>
         ) : (
