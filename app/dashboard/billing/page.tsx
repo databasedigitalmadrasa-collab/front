@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Download, Clock, Check, Calendar, DollarSign, FileText, AlertCircle } from "lucide-react"
+import { Download, Clock, Check, Calendar, DollarSign, FileText, AlertCircle, Printer } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { useUserAuth } from "@/hooks/use-user-auth"
@@ -257,15 +257,26 @@ export default function BillingPage() {
                       </Badge>
                     </div>
                   </div>
-                  <div className="text-left lg:text-right">
-                    <div className="text-xl sm:text-2xl font-bold text-gray-900">
-                      ₹{formatAmount(subscription.subscription_amount_paid)}
+                  <div className="text-left lg:text-right flex flex-col items-end gap-2">
+                    <div>
+                      <div className="text-xl sm:text-2xl font-bold text-gray-900">
+                        ₹{formatAmount(subscription.subscription_amount_paid)}
+                      </div>
+                      <div className="text-xs sm:text-sm text-gray-500">Merchant: {subscription.merchant_id}</div>
                     </div>
-                    <div className="text-xs sm:text-sm text-gray-500">Merchant: {subscription.merchant_id}</div>
+                    {subscription.transaction_status === "success" && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 text-xs"
+                        onClick={() => window.open(`/invoice/${subscription.id}`, "_blank")}
+                      >
+                        <Printer className="w-3 h-3" />
+                        Invoice
+                      </Button>
+                    )}
                   </div>
                 </div>
-
-                
               </div>
             ))
           )}

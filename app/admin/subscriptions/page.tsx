@@ -39,6 +39,7 @@ import {
   RotateCw,
   Plus,
   Loader2,
+  Printer,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api-client"
@@ -652,6 +653,14 @@ export default function ManageSubscriptionsPage() {
                             >
                               <Edit className="w-4 h-4 mr-2" />
                               Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => {
+                                window.open(`/invoice/${sub.id}`, '_blank')
+                              }}
+                            >
+                              <Printer className="w-4 h-4 mr-2" />
+                              View Invoice
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
