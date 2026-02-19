@@ -29,6 +29,7 @@ interface FinalCTAProps {
 const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
   // Fallback values
   const finalPrice = plan?.yearly_amount ?? 5988;
+  const discountedPrice = plan?.discounted_amount ?? 5988;
   const monthlyPrice = Math.round(finalPrice / 12);
   const offerTitle = plan?.offer_title || "DIGITAL REPUBLIC SALE";
 
@@ -105,7 +106,7 @@ const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
 
 
             <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
-              <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">{formatCurrency(finalPrice)}</p>
+              <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">{formatCurrency(discountedPrice)}</p>
               <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(monthlyPrice)}/month)</p>
 
 

@@ -61,11 +61,12 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: plan?.currency || 'INR', maximumFractionDigits: 0 }).format(amount);
   };
 
-  const monthlyPrice = plan ? Math.round(plan.yearly_amount / 12) : 499; // Fallback
+  const monthlyPrice =  499; // Fallback
   const yearlyPrice = plan?.yearly_amount || 5988; // Fallback
   // Logic for original/standard price
   const finalPrice = plan?.yearly_amount ?? 5988;
   const standardPrice = plan ? (plan.monthly_amount * 12) : 7499;
+  const discountedPrice = plan?.discounted_amount ?? 5988;
 
   // formatting date for banner
   const endDateObj = plan?.end_date ? new Date(plan.end_date) : null;
@@ -152,12 +153,12 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
                 <div className="flex flex-col items-center lg:items-start mb-6">
                   {/* Optional Strikethrough Price */}
                   <div className="text-2xl md:text-3xl font-bold text-slate-300 line-through decoration-red-400/50 decoration-2 mb-2">
-                    {formatCurrency(standardPrice)}
+                    {formatCurrency(finalPrice)}
                   </div>
 
                   <div className="flex items-baseline gap-1">
                     <span className="text-6xl md:text-8xl font-bold text-navyBlack tracking-tighter leading-none">
-                      {formatCurrency(finalPrice)}
+                      {formatCurrency(discountedPrice)}
                     </span>
                   </div>
                 </div>
