@@ -107,7 +107,7 @@ const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
 
             <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
               <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">{formatCurrency(discountedPrice)}</p>
-              <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(monthlyPrice)}/month)</p>
+              <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(499)}/month)</p>
 
 
               <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full mt-3 border border-green-500/20 uppercase tracking-wide">
