@@ -200,7 +200,7 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
             {/* CTA SECTION (Syncs with Price) */}
             <div className="mt-12 flex flex-col items-center">
               <Link href={`/enroll/${plan?.id || 1}`} className="w-full max-w-2xl py-6 bg-royalBlue bg-blue-700 text-white rounded-[1.25rem] font-bold text-xl md:text-2xl shadow-[0_20px_40px_-10px_rgba(0,86,255,0.4)] transition-all transform hover:scale-[1.01] active:scale-[0.98] block text-center">
-                {ctaTextPrefix} {formatCurrency(finalPrice)}
+                {ctaTextPrefix} {formatCurrency(discountedPrice)}
               </Link>
 
               {/* TRUST FOOTER (Static UI) */}
