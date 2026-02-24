@@ -37,7 +37,8 @@ const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
 
 interface PlatformSettings {
   id?: number
-  commission_percentage: number // Now stores flat amount in paise
+  commission_percentage: number // General commission or percentage
+  flat_commision: number // Flat commission in paise for referrals
   minimum_payment_threshold: number // Now stores amount in paise
   phonepe_client_id: string
   phonepe_client_secret: string
@@ -51,6 +52,7 @@ interface PlatformSettings {
 
 const defaultSettings: PlatformSettings = {
   commission_percentage: 0,
+  flat_commision: 0,
   minimum_payment_threshold: 0,
   phonepe_client_id: "",
   phonepe_client_secret: "",
@@ -119,6 +121,7 @@ export default function PlatformSettingsPage() {
   useEffect(() => {
     const payoutChanged =
       settings.commission_percentage !== originalSettings.commission_percentage ||
+      settings.flat_commision !== originalSettings.flat_commision ||
       settings.minimum_payment_threshold !== originalSettings.minimum_payment_threshold
 
     const paymentChanged =
@@ -149,6 +152,15 @@ export default function PlatformSettingsPage() {
         return
       }
 
+      if (settings.flat_commision < 0) {
+        toast({
+          title: "Validation Error",
+          description: "Flat commission must be positive.",
+          variant: "destructive",
+        })
+        return
+      }
+
       if (settings.minimum_payment_threshold < 0) {
         toast({
           title: "Validation Error",
@@ -171,6 +183,7 @@ export default function PlatformSettingsPage() {
         sectionName = "affiliate"
         dataToSave = {
           commission_percentage: settings.commission_percentage,
+          flat_commision: settings.flat_commision,
           minimum_payment_threshold: settings.minimum_payment_threshold,
         }
       } else if (tab === "payment") {
@@ -180,6 +193,7 @@ export default function PlatformSettingsPage() {
           phonepe_client_secret: settings.phonepe_client_secret,
           minimum_payment_threshold: settings.minimum_payment_threshold,
           commission_percentage: settings.commission_percentage,
+          flat_commision: settings.flat_commision,
         }
       } else if (tab === "policies") {
         sectionName = "pages"
@@ -233,7 +247,7 @@ export default function PlatformSettingsPage() {
 
   const calculateCommissionPreview = () => {
     const saleAmount = 1000000 // Example: ₹10,000 sale (in paise)
-    const commission = settings.commission_percentage // Commission is already in paise
+    const commission = settings.flat_commision || settings.commission_percentage // Fallback to either
     return { saleAmount: saleAmount / 100, commission: commission / 100 }
   }
 
@@ -319,24 +333,47 @@ export default function PlatformSettingsPage() {
 
             <div className="space-y-6">
               <div className="space-y-2">
-                <Label htmlFor="commission">Flat Commission (₹)</Label>
+                <Label htmlFor="flat_commision">Referral Flat Commission (₹)</Label>
                 <Input
-                  id="commission"
+                  id="flat_commision"
                   type="number"
                   step="0.01"
                   min="0"
-                  value={(settings.commission_percentage / 100).toFixed(2)}
+                  value={(settings.flat_commision / 100).toFixed(2)}
                   onChange={(e) =>
                     setSettings({
                       ...settings,
-                      commission_percentage: Math.round(Number.parseFloat(e.target.value) * 100) || 0,
+                      flat_commision: Math.round(Number.parseFloat(e.target.value) * 100) || 0,
                     })
                   }
                   placeholder="100.00"
                 />
                 <p className="text-sm text-gray-500">
-                  The flat amount (in rupees) that affiliates earn on each successful sale. Currently: ₹
-                  {(settings.commission_percentage / 100).toFixed(2)}
+                  The fixed amount (in rupees) that affiliates earn on each successful referral sale. Currently: ₹
+                  {(settings.flat_commision / 100).toFixed(2)}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="commission">Percentage Commission (%)</Label>
+                <Input
+                  id="commission"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  value={settings.commission_percentage}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      commission_percentage: Number.parseFloat(e.target.value) || 0,
+                    })
+                  }
+                  placeholder="10.00"
+                />
+                <p className="text-sm text-gray-500">
+                  The percentage amount that affiliates earn on each successful sale. Currently: 
+                  {settings.commission_percentage}%
                 </p>
               </div>
 
