@@ -18,6 +18,7 @@ interface Plan {
   start_date?: string
   end_date?: string
   is_featured?: boolean
+  badge_text?: string
   created_at: string
   updated_at: string
 }
@@ -29,9 +30,9 @@ interface FinalCTAProps {
 const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
   // Fallback values
   const finalPrice = plan?.yearly_amount ?? 5988;
-  const discountedPrice = plan?.discounted_amount ?? 5988;
-  const monthlyPrice = Math.round(finalPrice / 12);
-  const offerTitle = plan?.offer_title || "DIGITAL REPUBLIC SALE";
+  const discountedPrice = plan?.discounted_amount || finalPrice;
+  const monthlyPrice = Math.round(discountedPrice / 12);
+  const offerTitle = plan?.offer_title;
 
   // Format currency helper
   const formatCurrency = (amount: number) => {
@@ -107,27 +108,47 @@ const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
 
             <div className="mb-6 relative z-10 border-b border-royalBlue/20 pb-6 w-full">
               <p className="text-4xl md:text-5xl font-bold text-blue-500 mb-2">{formatCurrency(discountedPrice)}</p>
-              <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(499)}/month)</p>
+              <p className="text-slate-400 text-sm">/ Year (Just {formatCurrency(plan?.monthly_amount || 499)}/month)</p>
 
 
-              <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full mt-3 border border-green-500/20 uppercase tracking-wide">
-                {offerTitle}
+              <div className="flex flex-col items-center gap-2 mt-3">
+                <div className="inline-block bg-green-500/10 text-green-400 text-xs font-bold px-3 py-1 rounded-full border border-green-500/20 uppercase tracking-wide">
+                  {offerTitle}
+                </div>
+                
+                {plan?.badge_text && (
+                  <div className="px-4 py-1.5 bg-[#E6FFF2] text-[#00C06B] rounded-full text-[10px] font-bold uppercase tracking-wider border border-[#00C06B]/10">
+                    {plan.badge_text}
+                  </div>
+                )}
               </div>
             </div>
 
             <ul className="space-y-3 mb-8 text-left w-full max-w-sm mx-auto relative z-10">
-              {[
-                "Learn 5 Skills + All Future Skills for 1 Full Year",
-                "Become Skill-Ready + AI-Ready for 2026",
-                "Dedicated AI Modules in every skill",
-                "International-standard curriculum",
-                "Learn directly from mentors working with global clients",
-                "Client Acquisition Blueprint included",
-                "Regular updates (NOT outdated 2018-style courses)",
-                "Proven frameworks to get international clients",
-                "Learn at your own pace, anywhere",
-                "Build a real earning career from your home"
-              ].map((item, i) => (
+              {(() => {
+                let items: string[] = [];
+                if (plan?.whats_included) {
+                  if (Array.isArray(plan.whats_included)) {
+                    items = plan.whats_included;
+                  } else if (typeof plan.whats_included === 'string') {
+                    try {
+                      const parsed = JSON.parse(plan.whats_included);
+                      if (Array.isArray(parsed)) items = parsed;
+                    } catch (e) {
+                      items = [plan.whats_included];
+                    }
+                  }
+                }
+                return items.length > 0 ? items : [
+                  "Access to all current & future skills",
+                  "Dedicated AI modules in every skill",
+                  "International-standard curriculum",
+                  "Learn directly from mentors",
+                  "Client Acquisition Blueprint included",
+                  "Learn at your own pace",
+                  "Build a real earning career"
+                ];
+              })().map((item, i) => (
                 <li key={i} className="flex items-start gap-3 text-white text-sm">
                   <Check size={16} className="shrink-0 mt-0.5 text-[#0056FF]" />
                   <span>{item}</span>
@@ -154,16 +175,16 @@ const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
               {/* Payment Logos */}
               <div className="flex flex-wrap items-center justify-center gap-3 mb-6">
                 <div className="bg-white rounded-md w-16 h-10 flex items-center justify-center p-2 shadow-sm">
-                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/d6/Visa_2021.svg/1200px-Visa_2021.svg.png" alt="Visa" className="h-full w-auto object-contain" />
+                  <img src="https://cdn.simpleicons.org/visa/1A1F71" alt="Visa" className="h-full w-auto object-contain" />
                 </div>
                 <div className="bg-white rounded-md w-16 h-10 flex items-center justify-center p-2 shadow-sm">
-                  <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/e/e1/UPI-Logo-vector.svg/1200px-UPI-Logo-vector.svg.png" alt="UPI" className="h-full w-auto object-contain" />
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/e/e1/UPI-Logo-vector.svg" alt="UPI" className="h-full w-auto object-contain" />
                 </div>
                 <div className="bg-white rounded-md w-16 h-10 flex items-center justify-center p-1 shadow-sm">
                   <img src="https://upload.wikimedia.org/wikipedia/commons/c/cb/Rupay-Logo.png" alt="RuPay" className="h-full w-auto object-contain" />
                 </div>
                 <div className="bg-white rounded-md w-16 h-10 flex items-center justify-center p-2 shadow-sm">
-                  <img src="https://cdn.simpleicons.org/phonepe/5f259f" alt="PhonePe" className="h-full w-auto object-contain scale-125" />
+                  <img src="https://upload.wikimedia.org/wikipedia/commons/8/89/Razorpay_logo.svg" alt="PhonePe" className="h-full w-auto object-contain scale-125" />
                 </div>
               </div>
 

@@ -83,6 +83,7 @@ interface Subscription {
   merchant_id: string
   transaction_status: string
   transaction_timestamp: string
+  invoice_id: string | null
   created_at: string
   updated_at: string
   user: User
@@ -132,7 +133,7 @@ export default function ManageSubscriptionsPage() {
 
   const fetchSubscriptions = async () => {
     setLoading(true)
-    const token = getAuthToken()
+    const token = getAuthToken() || undefined
     const response = await apiClient.get<{ items: Subscription[] }>("/subscriptions", token)
 
     console.log("Subscriptions API response:", response)
@@ -152,7 +153,7 @@ export default function ManageSubscriptionsPage() {
   }
 
   const fetchUsers = async () => {
-    const token = getAuthToken()
+    const token = getAuthToken() || undefined
     const response = await apiClient.get<{ items: UserOption[] }>("/users", token)
 
     if (response.success && response.data) {
@@ -161,7 +162,7 @@ export default function ManageSubscriptionsPage() {
   }
 
   const fetchPlans = async () => {
-    const token = getAuthToken()
+    const token = getAuthToken() || undefined
     const response = await apiClient.get<{ items: PlanOption[] }>("/subscription-plans", token)
 
     if (response.success && response.data) {
@@ -180,7 +181,7 @@ export default function ManageSubscriptionsPage() {
     }
 
     setIsSubmitting(true)
-    const token = getAuthToken()
+    const token = getAuthToken() || undefined
 
     const requestBody = {
       user_id: editForm.user_id,
@@ -221,7 +222,7 @@ export default function ManageSubscriptionsPage() {
     if (!selectedSubscription) return
 
     setIsSubmitting(true)
-    const token = getAuthToken()
+    const token = getAuthToken() || undefined
 
     const requestBody = {
       user_id: editForm.user_id,
@@ -562,6 +563,7 @@ export default function ManageSubscriptionsPage() {
                     />
                   </TableHead>
                   <TableHead className="font-semibold">ID</TableHead>
+                  <TableHead className="font-semibold">Invoice ID</TableHead>
                   <TableHead className="font-semibold">User</TableHead>
                   <TableHead className="font-semibold">Plan</TableHead>
                   <TableHead className="font-semibold">Type</TableHead>
@@ -592,6 +594,9 @@ export default function ManageSubscriptionsPage() {
                       </TableCell>
                       <TableCell>
                         <span className="font-medium text-gray-900">#{sub.id}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm font-medium text-blue-600">{sub.invoice_id || "N/A"}</span>
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-col">
@@ -1100,6 +1105,10 @@ export default function ManageSubscriptionsPage() {
                   <div>
                     <Label className="text-gray-600">Subscription ID</Label>
                     <p className="font-medium">#{selectedSubscription.id}</p>
+                  </div>
+                   <div>
+                    <Label className="text-gray-600">Invoice ID</Label>
+                    <p className="font-medium text-blue-600">{selectedSubscription.invoice_id || "N/A"}</p>
                   </div>
                   <div>
                     <Label className="text-gray-600">Status</Label>

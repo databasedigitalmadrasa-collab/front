@@ -35,6 +35,7 @@ interface PromotionalAsset {
     content?: string;
     url?: string;
     thumbnail_url?: string;
+    drive_link?: string;
     is_active: number;
 }
 
@@ -373,6 +374,21 @@ export default function PromotionalAssetsAdminPage() {
                                         />
                                     </Button>
                                 </div>
+                            </div>
+                        )}
+
+                        {(currentAsset.type === 'banner' || currentAsset.type === 'video') && (
+                            <div className="space-y-2">
+                                <Label className="flex items-center gap-2 text-[#0066ff]">
+                                    <ExternalLink className="w-4 h-4" /> Google Drive Link (Optional)
+                                </Label>
+                                <Input
+                                    placeholder="https://drive.google.com/..."
+                                    value={currentAsset.drive_link || ''}
+                                    onChange={e => setCurrentAsset(prev => ({ ...prev, drive_link: e.target.value }))}
+                                    className="border-blue-100 focus:border-[#0066ff]"
+                                />
+                                <p className="text-[10px] text-gray-500 italic">Affiliates can use this link for direct high-quality downloads.</p>
                             </div>
                         )}
 

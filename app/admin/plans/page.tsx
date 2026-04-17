@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
   DialogContent,
@@ -65,6 +66,7 @@ interface Plan {
   start_date?: string
   end_date?: string
   is_featured?: boolean
+  badge_text?: string
   created_at: string
   updated_at: string
 }
@@ -101,6 +103,7 @@ export default function ManagePlansPage() {
     start_date: "",
     end_date: "",
     is_featured: false,
+    badge_text: "",
   })
 
   useEffect(() => {
@@ -110,7 +113,7 @@ export default function ManagePlansPage() {
   const fetchPlans = async () => {
     setIsLoading(true)
     const token = getAuthToken()
-    const response = await apiClient.get<{ items: Plan[] }>("/subscription-plans", token)
+    const response = await apiClient.get<{ items: Plan[] }>("/subscription-plans", token ?? undefined)
 
     console.log("Fetch plans response:", response)
 
@@ -119,7 +122,7 @@ export default function ManagePlansPage() {
     } else {
       toast({
         title: "Error",
-        description: response.message || "Failed to fetch plans",
+        description: (response.message as string) || "Failed to fetch plans",
         variant: "destructive",
       })
     }
@@ -151,11 +154,12 @@ export default function ManagePlansPage() {
       subscription_type: formData.subscription_type,
       gst_tax: Number.parseFloat(formData.gst_tax),
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
+      badge_text: formData.badge_text || undefined,
     }
 
     console.log("Creating plan with payload:", payload)
 
-    const response = await apiClient.post("/subscription-plans", payload, token)
+    const response = await apiClient.post("/subscription-plans", payload, token ?? undefined)
 
     console.log("Create plan response:", response)
 
@@ -170,7 +174,7 @@ export default function ManagePlansPage() {
     } else {
       toast({
         title: "Error",
-        description: response.message || "Failed to create plan",
+        description: (response.message as string) || "Failed to create plan",
         variant: "destructive",
       })
     }
@@ -202,11 +206,12 @@ export default function ManagePlansPage() {
       subscription_type: formData.subscription_type,
       gst_tax: Number.parseFloat(formData.gst_tax),
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
+      badge_text: formData.badge_text || undefined,
     }
 
     console.log("Updating plan with payload:", payload)
 
-    const response = await apiClient.put(`/subscription-plans/${selectedPlan.id}`, payload, token)
+    const response = await apiClient.put(`/subscription-plans/${selectedPlan.id}`, payload, token ?? undefined)
 
     console.log("Update plan response:", response)
 
@@ -222,7 +227,7 @@ export default function ManagePlansPage() {
     } else {
       toast({
         title: "Error",
-        description: response.message || "Failed to update plan",
+        description: (response.message as string) || "Failed to update plan",
         variant: "destructive",
       })
     }
@@ -237,7 +242,7 @@ export default function ManagePlansPage() {
 
     console.log("Deleting plan:", selectedPlan.id)
 
-    const response = await apiClient.delete(`/subscription-plans/${selectedPlan.id}`, token)
+    const response = await apiClient.delete(`/subscription-plans/${selectedPlan.id}`, token ?? undefined)
 
     console.log("Delete plan response:", response)
 
@@ -252,7 +257,7 @@ export default function ManagePlansPage() {
     } else {
       toast({
         title: "Error",
-        description: response.message || "Failed to delete plan",
+        description: (response.message as string) || "Failed to delete plan",
         variant: "destructive",
       })
     }
@@ -274,7 +279,36 @@ export default function ManagePlansPage() {
       start_date: "",
       end_date: "",
       is_featured: false,
+      badge_text: "",
     })
+  }
+
+  const handleToggleFeatured = async (plan: Plan, checked: boolean) => {
+    setIsLoading(true)
+    const token = getAuthToken()
+
+    const payload = {
+      is_featured: checked ? 1 : 0,
+    }
+
+    console.log(`Toggling plan ${plan.id} featured status to: ${checked}`)
+
+    const response = await apiClient.put(`/subscription-plans/${plan.id}`, payload, token ?? undefined)
+
+    if (response.success) {
+      toast({
+        title: "Success",
+        description: `Plan "${plan.title}" ${checked ? "is now featured" : "un-featured"}`,
+      })
+      fetchPlans()
+    } else {
+      toast({
+        title: "Error",
+        description: (response.message as string) || "Failed to update featured status",
+        variant: "destructive",
+      })
+    }
+    setIsLoading(false)
   }
 
   const openEditDialog = (plan: Plan) => {
@@ -293,6 +327,7 @@ export default function ManagePlansPage() {
       start_date: plan.start_date || "",
       end_date: plan.end_date || "",
       is_featured: !!plan.is_featured,
+      badge_text: plan.badge_text || "",
     })
     setIsEditDialogOpen(true)
   }
@@ -477,6 +512,7 @@ export default function ManagePlansPage() {
                 <TableHead className="font-semibold">Pricing</TableHead>
                 <TableHead className="font-semibold">Discount</TableHead>
                 <TableHead className="font-semibold">Type</TableHead>
+                <TableHead className="font-semibold text-center">Featured</TableHead>
                 <TableHead className="font-semibold">GST</TableHead>
                 <TableHead className="font-semibold">Created</TableHead>
                 <TableHead className="text-right font-semibold">Actions</TableHead>
@@ -485,14 +521,14 @@ export default function ManagePlansPage() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8">
+                  <TableCell colSpan={9} className="text-center py-8">
                     <Loader2 className="w-6 h-6 animate-spin mx-auto text-[#0066ff]" />
                     <p className="text-sm text-gray-500 mt-2">Loading plans...</p>
                   </TableCell>
                 </TableRow>
               ) : paginatedPlans.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
                     No plans found matching your filters
                   </TableCell>
                 </TableRow>
@@ -538,6 +574,12 @@ export default function ManagePlansPage() {
                       <Badge variant="outline" className="capitalize">
                         {plan.subscription_type}
                       </Badge>
+                    </TableCell>
+                    <TableCell className="text-center">
+                      <Switch 
+                        checked={Number(plan.is_featured) === 1} 
+                        onCheckedChange={(checked) => handleToggleFeatured(plan, checked)}
+                      />
                     </TableCell>
                     <TableCell>
                       <span className="text-sm text-gray-700">{plan.gst_tax}%</span>
@@ -647,14 +689,26 @@ export default function ManagePlansPage() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="offer_title">Offer Title (Optional)</Label>
-              <Input
-                id="offer_title"
-                value={formData.offer_title}
-                onChange={(e) => setFormData({ ...formData, offer_title: e.target.value })}
-                placeholder="e.g., Limited Time Offer - Save 20%"
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="offer_title">Offer Title (Optional)</Label>
+                <Input
+                  id="offer_title"
+                  value={formData.offer_title}
+                  onChange={(e) => setFormData({ ...formData, offer_title: e.target.value })}
+                  placeholder="e.g., Limited Time Offer"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="badge_text">Badge Text (Optional)</Label>
+                <Input
+                  id="badge_text"
+                  value={formData.badge_text}
+                  onChange={(e) => setFormData({ ...formData, badge_text: e.target.value })}
+                  placeholder="e.g., 20% OFF SALE"
+                />
+              </div>
             </div>
 
             <div className="space-y-2">

@@ -81,10 +81,11 @@ export default function SupportRequestsPage() {
     setLoading(true)
     try {
       const token = getAdminToken()
-      const response = await apiClient.get<{ items: SupportRequest[] }>("/support-requests", token)
+      const response = await apiClient.get<any>("/support-requests", token || undefined)
 
       if (response.success && response.data) {
-        setRequests(response.data.items || [])
+        const items = response.data.items || []
+        setRequests(items)
       } else {
         toast({
           title: "Error",
@@ -224,7 +225,7 @@ export default function SupportRequestsPage() {
           status: newStatus,
           resolved_at: newStatus === "resolved" || newStatus === "closed" ? new Date().toISOString() : undefined,
         },
-        token,
+        token || undefined,
       )
 
       if (response.success) {
@@ -257,7 +258,7 @@ export default function SupportRequestsPage() {
     setIsSaving(true)
     try {
       const token = getAdminToken()
-      const response = await apiClient.delete(`/support-requests/${selectedRequest.id}`, token)
+      const response = await apiClient.delete(`/support-requests/${selectedRequest.id}`, token || undefined)
 
       if (response.success) {
         toast({

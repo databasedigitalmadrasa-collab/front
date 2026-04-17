@@ -15,6 +15,7 @@ import {
     FileText,
     Video,
     DownloadCloud,
+    UploadCloud,
     Globe
 } from "lucide-react"
 import QRCode from "qrcode"
@@ -30,6 +31,7 @@ interface PromotionalAsset {
     content?: string;
     url?: string;
     thumbnail_url?: string;
+    drive_link?: string;
     is_active: number;
 }
 
@@ -278,6 +280,11 @@ export default function MarketingToolsPage() {
                                                 <Button size="icon" variant="ghost" className="h-8 w-8 rounded-lg hover:bg-gray-100" onClick={() => window.open(asset.url, '_blank')}>
                                                     <ExternalLink className="w-4 h-4 text-gray-600" />
                                                 </Button>
+                                                {asset.drive_link && (
+                                                    <Button size="sm" variant="outline" className="h-8 px-2 rounded-lg border-blue-200 text-[#0066ff] hover:bg-blue-50 text-[10px] font-bold gap-1" onClick={() => window.open(asset.drive_link, '_blank')}>
+                                                        <UploadCloud className="w-3 h-3" /> DRIVE
+                                                    </Button>
+                                                )}
                                                 <Button size="icon" className="h-8 w-8 rounded-lg bg-[#0066ff] text-white hover:bg-blue-600 shadow-sm" onClick={() => {
                                                     const link = document.createElement('a');
                                                     link.href = asset.url || '';
@@ -346,9 +353,19 @@ export default function MarketingToolsPage() {
                                         </div>
                                         <div className="absolute bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
                                             <h3 className="text-white font-heading font-bold text-lg mb-1">{asset.title}</h3>
-                                            <div className="flex items-center gap-3 text-xs text-gray-300">
-                                                <span className="bg-white/10 px-2 py-0.5 rounded text-white">Full HD</span>
-                                                <span>MP4</span>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-3 text-xs text-gray-300">
+                                                    <span className="bg-white/10 px-2 py-0.5 rounded text-white">Full HD</span>
+                                                    <span>MP4</span>
+                                                </div>
+                                                {asset.drive_link && (
+                                                    <Button size="sm" variant="outline" className="h-8 px-3 rounded-xl border-white/20 text-white bg-white/10 hover:bg-white/20 backdrop-blur-md text-[10px] font-bold gap-2" onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        window.open(asset.drive_link, '_blank');
+                                                    }}>
+                                                        <UploadCloud className="w-3 h-3 text-blue-400" /> DOWNLOAD FROM DRIVE
+                                                    </Button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

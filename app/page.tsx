@@ -182,9 +182,9 @@ export default function DigitalMadarsaLanding() {
         const res = await fetch('https://dm-backend.copybykhan.workers.dev/api/v1/subscription-plans');
         if (res.ok) {
           const data = await res.json();
-          // Find featured plan or first one
-          const featured = data.items.find((p: any) => p.is_featured) || data.items[0];
-          setFeaturedPlan(featured);
+          // Find exactly the featured plan (is_featured === 1)
+          const featured = data.items.find((p: any) => Number(p.is_featured) === 1);
+          setFeaturedPlan(featured || null);
         }
       } catch (err) {
         console.error("Failed to fetch plans", err);
@@ -206,10 +206,10 @@ export default function DigitalMadarsaLanding() {
             <USP />
             <Mentors />
             <Benefits />
-            <Pricing plan={featuredPlan} />
+            {featuredPlan && <Pricing plan={featuredPlan} />}
             <Certificate />
             <Authority />
-            <FinalCTA plan={featuredPlan} />
+            {featuredPlan && <FinalCTA plan={featuredPlan} />}
             <FAQ />
           </>
         ) : (

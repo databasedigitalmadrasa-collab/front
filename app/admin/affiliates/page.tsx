@@ -70,6 +70,11 @@ export default function AffiliatesPage() {
     const [searchQuery, setSearchQuery] = useState("")
     const [selectedAffiliate, setSelectedAffiliate] = useState<AffiliateUser | null>(null)
     const [isDeactivateDialogOpen, setIsDeactivateDialogOpen] = useState(false)
+    const [isWalletDialogOpen, setIsWalletDialogOpen] = useState(false)
+    const [walletAmount, setWalletAmount] = useState("")
+    const [walletAction, setWalletAction] = useState<"credit" | "debit">("credit")
+    const [walletNote, setWalletNote] = useState("")
+    const [isAdjustingWallet, setIsAdjustingWallet] = useState(false)
 
     useEffect(() => {
         fetchAffiliates()
@@ -108,6 +113,39 @@ export default function AffiliatesPage() {
             }
         } catch (error) {
             toast.error("An error occurred while deactivating")
+        }
+    }
+
+    const handleAdjustWallet = async () => {
+        if (!selectedAffiliate) return
+        if (!walletAmount || isNaN(Number(walletAmount)) || Number(walletAmount) <= 0) {
+            toast.error("Please enter a valid amount")
+            return
+        }
+
+        try {
+            setIsAdjustingWallet(true)
+            const amountCents = Math.round(Number(walletAmount) * 100)
+            const response = await apiClient.post("/wallet/adjust", {
+                user_id: selectedAffiliate.user_id,
+                amount_cents: amountCents,
+                action: walletAction,
+                note: walletNote
+            })
+
+            if (response.success) {
+                toast.success(`Wallet ${walletAction === "credit" ? "credited" : "debited"} successfully`)
+                setIsWalletDialogOpen(false)
+                setWalletAmount("")
+                setWalletNote("")
+                fetchAffiliates()
+            } else {
+                toast.error((response as any).error || `Failed to ${walletAction} wallet`)
+            }
+        } catch (error) {
+            toast.error("An error occurred while adjusting wallet")
+        } finally {
+            setIsAdjustingWallet(false)
         }
     }
 
@@ -315,6 +353,16 @@ export default function AffiliatesPage() {
                                                         <Copy className="w-4 h-4 mr-2" />
                                                         Copy Email
                                                     </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => {
+                                                        setSelectedAffiliate(affiliate)
+                                                        setIsWalletDialogOpen(true)
+                                                        setWalletAmount("")
+                                                        setWalletAction("credit")
+                                                        setWalletNote("")
+                                                    }}>
+                                                        <Wallet className="w-4 h-4 mr-2" />
+                                                        Manage Wallet
+                                                    </DropdownMenuItem>
                                                     <DropdownMenuItem>
                                                         <ExternalLink className="w-4 h-4 mr-2" />
                                                         View Full Profile
@@ -340,6 +388,90 @@ export default function AffiliatesPage() {
                     </Table>
                 </div>
             </div>
+
+            {/* Wallet Adjustment Dialog */}
+            <Dialog open={isWalletDialogOpen} onOpenChange={setIsWalletDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <Wallet className="w-5 h-5 text-blue-600" />
+                            Adjust Affiliate Wallet
+                        </DialogTitle>
+                        <DialogDescription>
+                            Manually credit or debit funds for <span className="font-bold text-[#150101]">{selectedAffiliate?.full_name}</span>.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="grid grid-cols-2 gap-3 p-1 bg-gray-100 rounded-xl">
+                            <button
+                                onClick={() => setWalletAction("credit")}
+                                className={cn(
+                                    "flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200",
+                                    walletAction === "credit"
+                                        ? "bg-white text-green-600 shadow-sm"
+                                        : "text-gray-500 hover:text-gray-700"
+                                )}
+                            >
+                                <CheckCircle2 className="w-4 h-4" />
+                                Credit Funds
+                            </button>
+                            <button
+                                onClick={() => setWalletAction("debit")}
+                                className={cn(
+                                    "flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg text-sm font-medium transition-all duration-200",
+                                    walletAction === "debit"
+                                        ? "bg-white text-red-600 shadow-sm"
+                                        : "text-gray-500 hover:text-gray-700"
+                                )}
+                            >
+                                <XCircle className="w-4 h-4" />
+                                Debit Funds
+                            </button>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700">Amount (INR)</label>
+                            <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                                <Input
+                                    type="number"
+                                    placeholder="0.00"
+                                    className="pl-7 bg-white border-gray-200 focus:ring-blue-500/20"
+                                    value={walletAmount}
+                                    onChange={(e) => setWalletAmount(e.target.value)}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700">Reason / Description</label>
+                            <Input
+                                placeholder="e.g. Performance bonus, Adjustment correction..."
+                                className="bg-white border-gray-200 focus:ring-blue-500/20"
+                                value={walletNote}
+                                onChange={(e) => setWalletNote(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter className="gap-2 sm:gap-0 mt-4">
+                        <DialogClose asChild>
+                            <Button variant="outline" className="rounded-xl">Cancel</Button>
+                        </DialogClose>
+                        <Button
+                            className={cn(
+                                "rounded-xl px-8",
+                                walletAction === "credit"
+                                    ? "bg-green-600 hover:bg-green-700 text-white"
+                                    : "bg-red-600 hover:bg-red-700 text-white"
+                            )}
+                            disabled={isAdjustingWallet}
+                            onClick={handleAdjustWallet}
+                        >
+                            {isAdjustingWallet ? "Processing..." : `Confirm ${walletAction === "credit" ? "Credit" : "Debit"}`}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={isDeactivateDialogOpen} onOpenChange={setIsDeactivateDialogOpen}>
                 <DialogContent className="sm:max-w-md">

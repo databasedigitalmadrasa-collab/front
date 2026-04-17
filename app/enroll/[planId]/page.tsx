@@ -13,9 +13,7 @@ import Link from "next/link"
 
 declare global {
   interface Window {
-    PhonePeCheckout?: {
-      transact: (config: { tokenUrl: string; callback: (response: any) => void; type: string }) => void
-    }
+    Razorpay?: any
   }
 }
 
@@ -348,114 +346,112 @@ export default function EnrollPage() {
         ...(referralStatus === "valid" && formData.referralCode ? { referral_code: formData.referralCode } : {}),
       }
 
+      // 1. Store temporary enrollment data
       sessionStorage.setItem("enrollmentData", JSON.stringify(enrollmentData))
       console.log("Enrollment data stored:", enrollmentData)
 
-      const paymentLogData = {
-        provider: "PhonePe",
-        order_id: merchantOrderId,
-        subscription_id: planData.id,
-        provider_transaction_id: "", // Will be updated in callback
-        email: formData.email,
-        contact_number: formData.contactNumber,
-        amount_cents: amount,
-        currency: "INR",
-        payment_method: "PG_CHECKOUT",
-        status: "pending",
-        status_detail: "Payment gateway loading",
-        attempt: 1,
-        receipt_url: null,
-        invoice_url: null,
-        refunded_amount_cents: 0,
-        refund_status: null,
-        merchant_id: "M233ADH6GR4O2",
-        transaction_timestamp: new Date().toISOString(),
-      }
-
-      console.log("Logging initial payment:", paymentLogData)
-
-      // Submit initial payment log
-      await fetch("https://srv.digitalmadrasa.co.in/api/v1/payment-logs/callback", {
+      // 2. Create Razorpay Order on Backend
+      const orderRes = await fetch(`${API_BASE_URL}/razorpay/create-order`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(paymentLogData),
-      }).catch((err) => console.error("Failed to log payment:", err))
-
-      // Prepare payment payload as per reference
-      const paymentPayload = {
-        merchantOrderId,
-        amount,
-        expireAfter: 1200, // 20 minutes
-        paymentFlow: {
-          type: "PG_CHECKOUT",
-          merchantUrls: {
-            redirectUrl: window.location.origin + "/payment/callback",
-          },
-        },
-      }
-
-      console.log("Creating payment with payload:", paymentPayload)
-
-      // Call the payment API endpoint
-      const res = await fetch("https://srv.digitalmadrasa.co.in/api/v1/checkout/pay", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(paymentPayload),
-      })
-
-      const responseText = await res.text()
-      console.log("Payment API response:", responseText)
-
-      const json = JSON.parse(responseText)
-
-      const tokenUrl = json.redirectUrl || json.tokenUrl || json.url
-
-      if (!tokenUrl) {
-        console.error("No payment URL in response:", json)
-        alert("Payment initialization failed. Please try again.")
-        setIsProcessingPayment(false)
-        return
-      }
-
-      console.log("Token URL:", tokenUrl)
-
-      // Check if PhonePe Checkout SDK is available for iframe mode
-      if (window.PhonePeCheckout && typeof window.PhonePeCheckout.transact === "function") {
-        console.log("Opening PhonePe checkout iframe")
-
-        // Open PhonePe checkout iframe
-        window.PhonePeCheckout.transact({
-          tokenUrl,
-          callback: (response) => {
-            console.log("PhonePe callback response:", response)
-            setIsProcessingPayment(false)
-
-            // Redirect to callback page with status
-            if (response === "SUCCESS") {
-              window.location.href = `/payment/callback?status=success&orderId=${merchantOrderId}`
-            } else if (response === "USER_CANCEL") {
-              // User cancelled the payment
-              console.log("User cancelled payment")
-              window.location.href = `/payment/callback?status=cancelled&orderId=${merchantOrderId}`
-            } else if (response === "CONCLUDED") {
-              // Transaction is in terminal state - redirect to callback for verification
-              console.log("Transaction concluded, verifying status")
-              window.location.href = `/payment/callback?status=concluded&orderId=${merchantOrderId}`
-            } else {
-              window.location.href = `/payment/callback?status=failed&orderId=${merchantOrderId}`
-            }
-          },
-          type: "IFRAME",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: amount, // in paisa
+          currency: "INR",
+          receipt: merchantOrderId
         })
-      } else {
-        // Fallback: redirect directly to payment URL
-        console.log("PhonePe SDK not available, redirecting to payment URL")
-        window.location.href = tokenUrl
+      });
+      const orderData = await orderRes.json();
+      if (!orderData.success) throw new Error(orderData.error || "Failed to create order");
+
+      // 3. Create initial payment log
+      const logRes = await fetch(`${API_BASE_URL}/payment/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: null,
+          package_id: planData.id,
+          amount_cents: amount,
+          currency: "INR",
+          razorpay_order_id: orderData.order_id,
+          email: formData.email,
+          contact_number: formData.contactNumber,
+          referral_code: referralStatus === "valid" ? formData.referralCode : null
+        })
+      });
+      const logData = await logRes.json();
+      if (!logData.success) throw new Error("Failed to log transaction");
+      const paymentLogUuid = logData.uuid;
+
+      // 4. Initialize Razorpay Checkout
+      if (!window.Razorpay) {
+        alert("Payment gateway failed to load. Please refresh.");
+        setIsProcessingPayment(false);
+        return;
       }
+
+      const options = {
+        key: orderData.key,
+        amount: orderData.amount,
+        currency: orderData.currency,
+        name: "Digital Madrasa",
+        description: `Enrollment for ${planData.title}`,
+        order_id: orderData.order_id,
+        prefill: {
+          name: formData.fullName,
+          email: formData.email,
+          contact: formData.contactNumber,
+        },
+        theme: { color: "#2563eb" },
+        handler: async (response: any) => {
+          setIsProcessingPayment(true);
+          try {
+            // Update log with success
+            await fetch(`${API_BASE_URL}/payment/log/${paymentLogUuid}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                status: 'success',
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature
+              })
+            });
+            window.location.href = `/payment/callback?status=success&razorpay_order_id=${response.razorpay_order_id}&razorpay_payment_id=${response.razorpay_payment_id}&razorpay_signature=${response.razorpay_signature}&uuid=${paymentLogUuid}`;
+          } catch (err) {
+            console.error("Success handling failed:", err);
+            window.location.href = `/payment/callback?status=failed&orderId=${merchantOrderId}`;
+          }
+        },
+        modal: {
+          ondismiss: async () => {
+            setIsProcessingPayment(false);
+            // Update log with user cancellation
+            await fetch(`${API_BASE_URL}/payment/log/${paymentLogUuid}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                status: 'failed',
+                error_description: 'User dismissed the payment modal'
+              })
+            }).catch(console.error);
+          }
+        }
+      };
+
+      const rzp = new window.Razorpay(options);
+      rzp.on('payment.failed', async (response: any) => {
+        console.error("Payment failed:", response.error);
+        await fetch(`${API_BASE_URL}/payment/log/${paymentLogUuid}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            status: 'failed',
+            error_code: response.error.code,
+            error_description: response.error.description
+          })
+        }).catch(console.error);
+      });
+      rzp.open();
+
     } catch (error) {
       console.error("Payment error:", error)
       alert("Payment failed. Please try again.")
@@ -994,7 +990,7 @@ export default function EnrollPage() {
                           <img src="https://upload.wikimedia.org/wikipedia/commons/c/cb/Rupay-Logo.png" alt="RuPay" className="h-6 object-contain" />
                         </div>
                         <div className="h-8 px-3 bg-white rounded flex items-center justify-center shadow-sm">
-                          <img src="https://cdn.simpleicons.org/phonepe/5f259f" alt="PhonePe" className="h-4" />
+                          <img src="https://upload.wikimedia.org/wikipedia/commons/8/89/Razorpay_logo.svg" alt="Razorpay" className="h-4" />
                         </div>
                       </div>
                     </div>

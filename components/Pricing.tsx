@@ -17,6 +17,7 @@ interface Plan {
   start_date?: string
   end_date?: string
   is_featured?: boolean
+  badge_text?: string
   created_at: string
   updated_at: string
 }
@@ -61,23 +62,24 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
     return new Intl.NumberFormat('en-IN', { style: 'currency', currency: plan?.currency || 'INR', maximumFractionDigits: 0 }).format(amount);
   };
 
-  const monthlyPrice =  499; // Fallback
-  const yearlyPrice = plan?.yearly_amount || 5988; // Fallback
+  const monthlyPrice = plan?.monthly_amount || 499; 
+  const yearlyPrice = plan?.yearly_amount || 5988; 
   // Logic for original/standard price
   const finalPrice = plan?.yearly_amount ?? 5988;
   const standardPrice = plan ? (plan.monthly_amount * 12) : 7499;
-  const discountedPrice = plan?.discounted_amount ?? 5988;
+  const discountedPrice = plan?.discounted_amount || yearlyPrice;
+  const hasDiscount = !!plan?.discounted_amount && plan.discounted_amount < yearlyPrice;
 
   // formatting date for banner
   const endDateObj = plan?.end_date ? new Date(plan.end_date) : null;
   const dateString = endDateObj ? endDateObj.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : 'LIMITED TIME';
 
   // Config derived from plan
-  const title = `Pricing & ${plan?.title || "Digital Republic Sale"}`;
-  const subtitle = "India deserves world-class education at a fair price.";
+  const title = plan?.title || "Digital Republic Sale";
+  const subtitle = plan?.description || "India deserves world-class education at a fair price.";
   const statusText = `🇮🇳 ${plan?.offer_title || "DIGITAL REPUBLIC SALE"} IS LIVE`;
   const timerLabel = `SALE ENDS ${dateString.toUpperCase()}`;
-  const isSaleMode = true; // Always active for Republic Sale
+  const isSaleMode = !!plan?.offer_title; // Only sale mode if offer title exists
 
   // Ensure benefits is always an array
   let includedItems: string[] = [];
@@ -96,14 +98,7 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
     }
   }
 
-  const benefits = includedItems.length > 0 ? includedItems : [
-    "Access to all current & future skills",
-    "Dedicated AI modules in every course",
-    "Client Acquisition Blueprint included",
-    "Assignments, resources & certificates",
-    "Continuous updates at no extra cost",
-    "Priority community support"
-  ];
+  const benefits = includedItems;
 
   const ctaTextPrefix = "Enroll Now for";
 
@@ -144,17 +139,19 @@ const Pricing: React.FC<PricingProps> = ({ plan }) => {
               <div className="lg:w-1/2 flex flex-col justify-center items-center lg:items-start text-center lg:text-left">
 
                 {/* Optional Discount Badge */}
-                {isSaleMode && (
+                {plan?.badge_text && (
                   <div className="mb-6 px-4 py-1.5 bg-[#E6FFF2] text-[#00C06B] rounded-full text-[10px] font-bold uppercase tracking-wider border border-[#00C06B]/10">
-                    20% OFF SALE
+                    {plan.badge_text}
                   </div>
                 )}
 
                 <div className="flex flex-col items-center lg:items-start mb-6">
                   {/* Optional Strikethrough Price */}
-                  <div className="text-2xl md:text-3xl font-bold text-slate-300 line-through decoration-red-400/50 decoration-2 mb-2">
-                    {formatCurrency(finalPrice)}
-                  </div>
+                  {hasDiscount && (
+                    <div className="text-2xl md:text-3xl font-bold text-slate-300 line-through decoration-red-400/50 decoration-2 mb-2">
+                      {formatCurrency(finalPrice)}
+                    </div>
+                  )}
 
                   <div className="flex items-baseline gap-1">
                     <span className="text-6xl md:text-8xl font-bold text-navyBlack tracking-tighter leading-none">

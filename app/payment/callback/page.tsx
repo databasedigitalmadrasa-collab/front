@@ -50,139 +50,71 @@ export default function PaymentCallbackPage() {
       }
 
       try {
-        // Call order status API to verify payment state
-        console.log("Verifying payment status with order API:", orderId)
-        const statusResponse = await fetch(`https://srv.digitalmadrasa.co.in/api/v1/checkout/order/${orderId}/status`, {
-          method: "GET",
-          headers: { "Content-Type": "application/json" },
-        })
+        // Detect Razorpay parameters
+        const razorpay_order_id = searchParams.get("razorpay_order_id")
+        const razorpay_payment_id = searchParams.get("razorpay_payment_id")
+        const razorpay_signature = searchParams.get("razorpay_signature")
+        const uuid = searchParams.get("uuid")
 
-        const statusResult = await statusResponse.json()
-        console.log("Order status API response:", statusResult)
+        if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
+          console.log("Razorpay verification parameters detected. Verifying callback...")
+          const verifyResponse = await fetch("https://srv.digitalmadrasa.co.in/api/v1/razorpay/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_order_id,
+              razorpay_payment_id,
+              razorpay_signature,
+              uuid
+            }),
+          })
 
-        const orderState = statusResult.state
-        const paymentDetails = statusResult.paymentDetails?.[0] || {}
-        const transactionId = paymentDetails.transactionId || ""
-        const paymentMethod = paymentDetails.paymentMode || "UPI"
-        const merchantId = enrollmentData.merchant_id || "M233ADH6GR4O2"
+          const verifyResult = await verifyResponse.json()
+          console.log("Verification API response:", verifyResult)
 
-        const paymentLogData = {
-          provider: "PhonePe",
-          order_id: orderId,
-          subscription_id: enrollmentData.plan_id,
-          provider_transaction_id: transactionId,
-          email: enrollmentData.email,
-          contact_number: enrollmentData.contact,
-          amount_cents: enrollmentData.subscription_amount_paid,
-          currency: "INR",
-          payment_method: paymentMethod,
-          status: orderState === "COMPLETED" ? "success" : orderState === "PENDING" ? "pending" : "failed",
-          status_detail:
-            orderState === "COMPLETED"
-              ? "Payment captured successfully"
-              : orderState === "PENDING"
-                ? "Payment is being processed"
-                : statusResult.errorCode || "Payment failed",
-          attempt: 1,
-          receipt_url: "",
-          invoice_url: "",
-          refunded_amount_cents: 0,
-          refund_status: null,
-          merchant_id: merchantId,
-          transaction_timestamp: new Date().toISOString(),
-        }
-
-        console.log("Logging payment to backend:", paymentLogData)
-
-        await fetch("https://srv.digitalmadrasa.co.in/api/v1/payment-logs/callback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(paymentLogData),
-        }).catch((err) => console.error("Failed to log payment:", err))
-
-        if (orderState === "COMPLETED") {
-          // Payment successful - enroll with active subscription
-          console.log("Payment successful, enrolling user with active subscription...")
-          try {
-            const response = await fetch("https://srv.digitalmadrasa.co.in/api/v1/users/enroll", {
+          if (verifyResponse.ok && verifyResult.success) {
+            // VERIFIED - Proceed to enrollment
+            console.log("Payment verified! Enrolling user...")
+            const enrollResponse = await fetch("https://srv.digitalmadrasa.co.in/api/v1/users/enroll", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 ...enrollmentData,
                 transaction_status: "success",
                 subscription_status: "active",
+                razorpay_payment_id,
+                razorpay_order_id
               }),
             })
 
-            const result = await response.json()
-            console.log("Enrollment API response:", result)
-
-            if (response.ok && result.success) {
+            const enrollResult = await enrollResponse.json()
+            if (enrollResponse.ok && enrollResult.success) {
               sessionStorage.removeItem("enrollmentData")
               setStatus("success")
+              return
             } else {
               setStatus("enrollment_failed")
-              setErrorMessage(result.message || "Enrollment failed after successful payment.")
+              setErrorMessage(enrollResult.message || "Enrollment failed after successful payment.")
               setSupportDetails({
-                orderId: orderId || "",
+                orderId: razorpay_order_id,
                 email: enrollmentData.email,
-                transactionId: transactionId,
-                paymentState: orderState,
+                transactionId: razorpay_payment_id,
+                paymentState: "PAID",
                 amount: enrollmentData.subscription_amount_paid,
               })
+              return
             }
-          } catch (error) {
-            console.error("Enrollment error:", error)
-            setStatus("enrollment_failed")
-            setErrorMessage("Failed to complete enrollment after successful payment.")
-            setSupportDetails({
-              orderId: orderId || "",
-              email: enrollmentData.email,
-              transactionId: transactionId,
-              paymentState: orderState,
-              amount: enrollmentData.subscription_amount_paid,
-            })
-          }
-        } else if (orderState === "PENDING") {
-          // Payment pending - enroll with inactive subscription
-          console.log("Payment pending, enrolling user with inactive subscription...")
-          try {
-            const response = await fetch("https://srv.digitalmadrasa.co.in/api/v1/users/enroll", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                ...enrollmentData,
-                transaction_status: "pending",
-                subscription_status: "inactive",
-              }),
-            })
-
-            const result = await response.json()
-            console.log("Enrollment API response:", result)
-
-            if (response.ok && result.success) {
-              sessionStorage.removeItem("enrollmentData")
-              setStatus("pending")
-            } else {
-              setStatus("failed")
-              setErrorMessage(result.message || "Enrollment failed. Please contact support.")
-            }
-          } catch (error) {
-            console.error("Enrollment error:", error)
+          } else {
             setStatus("failed")
-            setErrorMessage("Failed to complete enrollment. Please contact support.")
+            setErrorMessage(verifyResult.error || "Payment verification failed. Please contact support.")
+            return
           }
-        } else {
-          // Payment failed - don't enroll
-          console.log("Payment failed, not enrolling user")
-          sessionStorage.removeItem("enrollmentData")
-          setStatus("failed")
-          setErrorMessage(
-            statusResult.errorCode === "TXN_NOT_COMPLETED"
-              ? "Transaction was not completed. Please try again."
-              : statusResult.detailedErrorCode || "Payment processing failed. Please try again.",
-          )
         }
+
+        // Fallback for non-Razorpay or missing params
+        console.warn("No valid Razorpay parameters found in callback.")
+        setStatus("failed")
+        setErrorMessage("Invalid payment callback. Please contact support.")
       } catch (error) {
         console.error("Payment verification error:", error)
         setStatus("failed")

@@ -56,6 +56,7 @@ interface Lesson {
   locked: number
   completed: number
   duration_seconds: number
+  description: string | null
   created_at: string
   updated_at: string
   resources: Resource[]
@@ -879,8 +880,12 @@ export default function CourseAccessPage() {
             <div className="py-2">
               {activeTab === 'overview' && (
                 <div className="prose prose-sm max-w-none text-gray-600">
-                  <h3 className="text-gray-900 font-bold text-lg mb-2">Description</h3>
-                  <p>{course.description || course.short_description || "No description available."}</p>
+                  <h3 className="text-gray-900 font-bold text-lg mb-2">
+                    {currentLesson ? "Lesson Description" : "Course Description"}
+                  </h3>
+                  <div className="whitespace-pre-wrap">
+                    {currentLesson?.description || course.description || course.short_description || "No description available."}
+                  </div>
                 </div>
               )}
               {activeTab === 'resources' && (

@@ -76,7 +76,18 @@ interface Module {
 interface Course {
   id: string
   title: string
+  slug: string
+  subtitle?: string
+  short_description?: string
   description?: string
+  thumbnail_url?: string
+  preview_video_url?: string
+  is_published: number | boolean
+  mentor_id?: number
+  certificate_template_id?: number
+  plan_id?: number
+  total_lessons?: number
+  total_modules?: number
 }
 
 export default function CourseEditPage() {
@@ -96,6 +107,9 @@ export default function CourseEditPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [editingModuleId, setEditingModuleId] = useState<string | null>(null)
   const [isUpdatingPosition, setIsUpdatingPosition] = useState(false)
+  const [isEditingSettings, setIsEditingSettings] = useState(false)
+  const [courseSettingsData, setCourseSettingsData] = useState<Partial<Course>>({})
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false)
   const videoRef = useRef<HTMLVideoElement>(null)
   const { toast } = useToast()
   const router = useRouter()
@@ -117,6 +131,96 @@ export default function CourseEditPage() {
   useEffect(() => {
     loadCourseData()
   }, [params.courseId])
+
+  const uploadBanner = async (file: File): Promise<string | null> => {
+    setIsUploadingBanner(true)
+    setUploadProgress(0)
+
+    try {
+      const fileName = `course-banner-${params.courseId}-${Date.now()}-${file.name.replace(/\s+/g, "-")}`
+      const uploadPath = `course-banners/${fileName}`
+      const contentType = file.type || "application/octet-stream"
+
+      const xhr = new XMLHttpRequest()
+
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) {
+          const progress = Math.round((event.loaded / event.total) * 100)
+          setUploadProgress(progress)
+        }
+      }
+
+      const uploadPromise = new Promise<string | null>((resolve) => {
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(`https://cdn.digitalmadrasa.co.in/${uploadPath}`)
+          } else {
+            resolve(null)
+          }
+        }
+        xhr.onerror = () => resolve(null)
+        xhr.onabort = () => resolve(null)
+
+        const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
+        xhr.open("POST", uploadUrl)
+        xhr.send(file)
+      })
+
+      return await uploadPromise
+    } catch (error) {
+      console.error("Error uploading course banner:", error)
+      return null
+    } finally {
+      setIsUploadingBanner(false)
+      setUploadProgress(0)
+    }
+  }
+
+  const saveCourseDetails = async () => {
+    if (!courseSettingsData.title?.trim()) {
+      toast({
+        title: "Validation Error",
+        description: "Please enter a course title",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const token = getAdminToken()
+      const response = await fetch(`${API_BASE_URL}/courses/${params.courseId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(courseSettingsData),
+      })
+
+      const data = await response.json()
+
+      if (data.success) {
+        setCourse(data.data)
+        toast({
+          title: "Success",
+          description: "Course details updated successfully",
+        })
+        setIsEditingSettings(false)
+      } else {
+        throw new Error(data.error || "Failed to update course details")
+      }
+    } catch (error) {
+      console.error("Error saving course details:", error)
+      toast({
+        title: "Error",
+        description: "Failed to save course details",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   const loadCourseData = async () => {
     setIsLoading(true)
@@ -176,10 +280,13 @@ export default function CourseEditPage() {
       }
 
       // Load course details
-      const courses = JSON.parse(localStorage.getItem("courses") || "[]")
-      const courseData = courses.find((c: any) => String(c.id) === String(params.courseId))
-      if (courseData) {
-        setCourse(courseData)
+      const courseResponse = await fetch(`${API_BASE_URL}/courses/${params.courseId}`)
+      if (courseResponse.ok) {
+        const courseData = await courseResponse.json()
+        if (courseData.success && courseData.data) {
+          setCourse(courseData.data)
+          setCourseSettingsData(courseData.data)
+        }
       }
     } catch (error) {
       console.error("Error loading course data:", error)
@@ -1037,17 +1144,157 @@ export default function CourseEditPage() {
             {hasUnsavedChanges && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded">Unsaved</span>}
           </div>
           <div className="flex items-center gap-2">
-
-            <Button size="sm" onClick={saveLesson} disabled={isSaving || !selectedLesson}>
-              <Save className="w-4 h-4 mr-1" />
-              {isSaving ? "Saving..." : "Save Lesson"}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditingSettings(!isEditingSettings)}
+              className={isEditingSettings ? "bg-blue-50 text-blue-600 border-blue-200" : ""}
+            >
+              <Pencil className="w-4 h-4 mr-1" />
+              {isEditingSettings ? "Back to Curriculum" : "Course Details"}
             </Button>
+
+            {!isEditingSettings && (
+              <Button size="sm" onClick={saveLesson} disabled={isSaving || !selectedLesson}>
+                <Save className="w-4 h-4 mr-1" />
+                {isSaving ? "Saving..." : "Save Lesson"}
+              </Button>
+            )}
+            
+            {isEditingSettings && (
+              <Button size="sm" onClick={saveCourseDetails} disabled={isSaving}>
+                <Save className="w-4 h-4 mr-1" />
+                {isSaving ? "Saving..." : "Save Details"}
+              </Button>
+            )}
           </div>
         </div>
 
         {/* Content Area */}
         <div className="flex-1 overflow-auto p-6">
-          {!selectedLesson ? (
+          {isEditingSettings ? (
+            <div className="max-w-4xl mx-auto space-y-8 bg-white p-8 rounded-xl border border-gray-100 shadow-sm">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-1">Course Details</h2>
+                <p className="text-gray-500">Update your course title, subtitle, description and banner</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="course-title">Course Title</Label>
+                    <Input
+                      id="course-title"
+                      value={courseSettingsData.title || ""}
+                      onChange={(e) => setCourseSettingsData({ ...courseSettingsData, title: e.target.value })}
+                      placeholder="e.g. Master React in 30 Days"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="course-slug">Slug (URL friendly)</Label>
+                    <Input
+                      id="course-slug"
+                      value={courseSettingsData.slug || ""}
+                      onChange={(e) => setCourseSettingsData({ ...courseSettingsData, slug: e.target.value })}
+                      placeholder="e.g. master-react-30-days"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Course Banner / Thumbnail</Label>
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 text-center">
+                      {courseSettingsData.thumbnail_url ? (
+                        <div className="relative group">
+                          <img
+                            src={courseSettingsData.thumbnail_url}
+                            alt="Preview"
+                            className="w-full h-32 object-cover rounded-md mb-2"
+                          />
+                          <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center rounded-md">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => setCourseSettingsData({ ...courseSettingsData, thumbnail_url: "" })}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="py-4">
+                          <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                          <p className="text-sm text-gray-500 mb-2">Upload PNG, JPG or WEBP</p>
+                        </div>
+                      )}
+                      <Input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        id="banner-upload"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0]
+                          if (file) {
+                            const url = await uploadBanner(file)
+                            if (url) {
+                              setCourseSettingsData({ ...courseSettingsData, thumbnail_url: url })
+                            }
+                          }
+                        }}
+                      />
+                      <Label
+                        htmlFor="banner-upload"
+                        className="cursor-pointer inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
+                      >
+                        {isUploadingBanner ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Uploading... {uploadProgress}%
+                          </>
+                        ) : (
+                          "Select Banner Image"
+                        )}
+                      </Label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="course-subtitle">Subtitle / Short Tagline</Label>
+                <Input
+                  id="course-subtitle"
+                  value={courseSettingsData.subtitle || ""}
+                  onChange={(e) => setCourseSettingsData({ ...courseSettingsData, subtitle: e.target.value })}
+                  placeholder="e.g. A comprehensive guide for modern developers"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="course-description">Short Description</Label>
+                <Textarea
+                  id="course-description"
+                  value={courseSettingsData.short_description || ""}
+                  onChange={(e) => setCourseSettingsData({ ...courseSettingsData, short_description: e.target.value })}
+                  placeholder="Summarize what learners will achieve..."
+                  className="min-h-[100px]"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="course-full-description">Full Description (HTML Supported)</Label>
+                <Textarea
+                  id="course-full-description"
+                  value={courseSettingsData.description || ""}
+                  onChange={(e) => setCourseSettingsData({ ...courseSettingsData, description: e.target.value })}
+                  placeholder="Detailed course content, requirements, etc..."
+                  className="min-h-[200px]"
+                />
+              </div>
+            </div>
+          ) : !selectedLesson ? (
             <div className="h-full flex items-center justify-center">
               <div className="text-center">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">

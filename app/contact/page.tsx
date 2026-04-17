@@ -17,6 +17,7 @@ export default function ContactPage() {
     const [formData, setFormData] = useState({
         name: "",
         email: "",
+        contact: "",
         subject: "",
         message: ""
     })
@@ -28,11 +29,12 @@ export default function ContactPage() {
         try {
             // Since backend Support Requests table might not have name/email columns for guests,
             // we prepend them to the message body.
-            const fullMessage = `Name: ${formData.name}\nEmail: ${formData.email}\n\nMessage:\n${formData.message}`
-
             const payload = {
+                name: formData.name,
                 subject: formData.subject,
-                message: fullMessage,
+                message: formData.message,
+                email: formData.email,
+                contact: formData.contact,
                 status: 'open'
             }
 
@@ -40,7 +42,7 @@ export default function ContactPage() {
 
             if (res.success) {
                 toast.success("Message sent successfully! We will get back to you soon.")
-                setFormData({ name: "", email: "", subject: "", message: "" })
+                setFormData({ name: "", email: "", contact: "", subject: "", message: "" })
             } else {
                 toast.error(res.message || "Failed to send message. Please try again.")
             }
@@ -94,6 +96,18 @@ export default function ContactPage() {
                                             placeholder="your@email.com"
                                             value={formData.email}
                                             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                                            required
+                                            className="bg-slate-950/50 border-white/10 focus-visible:ring-blue-500"
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="contact">Phone Number</Label>
+                                        <Input
+                                            id="contact"
+                                            type="tel"
+                                            placeholder="+91 12345 67890"
+                                            value={formData.contact}
+                                            onChange={(e) => setFormData({ ...formData, contact: e.target.value })}
                                             required
                                             className="bg-slate-950/50 border-white/10 focus-visible:ring-blue-500"
                                         />

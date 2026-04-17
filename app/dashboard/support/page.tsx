@@ -16,6 +16,9 @@ export default function SupportPage() {
   const [formData, setFormData] = useState({
     subject: "",
     message: "",
+    name: "",
+    email: "",
+    contact: "",
   })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const { toast } = useToast()
@@ -99,6 +102,18 @@ export default function SupportPage() {
 
   const filteredFaqs = selectedCategory === "all" ? faqs : faqs.filter((faq) => faq.category === selectedCategory)
 
+  useState(() => {
+    const user = getCurrentUser()
+    if (user) {
+      setFormData((prev) => ({
+        ...prev,
+        name: user.full_name || "",
+        email: user.email || "",
+        contact: user.contact || "",
+      }))
+    }
+  })
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
@@ -108,17 +123,18 @@ export default function SupportPage() {
       const user = getCurrentUser()
       const token = getUserToken()
 
-      // In dev mode, use a dummy user_id if no user is logged in
-      const userId = user?.id || 1
+      const payload = {
+        user_id: user?.id || null,
+        subject: formData.subject,
+        message: formData.message,
+        email: formData.email,
+        contact: formData.contact,
+        status: "open",
+      }
 
       const response = await apiClient.post(
         "/support-requests",
-        {
-          user_id: userId,
-          subject: formData.subject,
-          message: formData.message,
-          status: "open",
-        },
+        payload,
         token || undefined,
       )
 
@@ -129,7 +145,7 @@ export default function SupportPage() {
         })
 
         // Reset form
-        setFormData({ subject: "", message: "" })
+        setFormData((prev) => ({ ...prev, subject: "", message: "" }))
       } else {
         toast({
           title: "Failed to submit request",
@@ -248,6 +264,25 @@ export default function SupportPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Name</label>
+                <Input
+                  value={formData.name}
+                  readOnly
+                  className="w-full h-12 text-base bg-gray-50 border-gray-200"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Email Address</label>
+                <Input
+                  value={formData.email}
+                  readOnly
+                  className="w-full h-12 text-base bg-gray-50 border-gray-200"
+                />
+              </div>
+            </div>
+
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Subject</label>
               <Input

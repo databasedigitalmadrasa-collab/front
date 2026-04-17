@@ -41,6 +41,7 @@ interface Subscription {
   subscription_status: string
   order_id: string
   transaction_status: string
+  invoice_id: string | null
   created_at: string
   user: User | null
   plan: Plan | null
@@ -208,7 +209,7 @@ export default function InvoicePage({ params }: InvoicePageProps) {
           </div>
             <div className="text-left md:text-right mt-6 md:mt-0">
               <h1 className="text-3xl font-bold text-gray-800 mb-2">TAX INVOICE</h1>
-              <p className="text-sm text-gray-600">Invoice #: <span className="font-mono font-medium">{`INV-${subscription.order_id}`}</span></p>
+              <p className="text-sm text-gray-600">Invoice #: <span className="font-mono font-medium">{`INV-`+subscription.invoice_id || `INV-${subscription.order_id}`}</span></p>
               <p className="text-sm text-gray-600">Date: {invoiceDate}</p>
               <p className="text-sm text-gray-600">Status: <span className="uppercase font-semibold">{subscription.subscription_status}</span></p>
             </div>
