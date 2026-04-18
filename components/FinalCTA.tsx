@@ -125,30 +125,18 @@ const FinalCTA: React.FC<FinalCTAProps> = ({ plan }) => {
             </div>
 
             <ul className="space-y-3 mb-8 text-left w-full max-w-sm mx-auto relative z-10">
-              {(() => {
-                let items: string[] = [];
-                if (plan?.whats_included) {
-                  if (Array.isArray(plan.whats_included)) {
-                    items = plan.whats_included;
-                  } else if (typeof plan.whats_included === 'string') {
-                    try {
-                      const parsed = JSON.parse(plan.whats_included);
-                      if (Array.isArray(parsed)) items = parsed;
-                    } catch (e) {
-                      items = [plan.whats_included];
-                    }
-                  }
-                }
-                return items.length > 0 ? items : [
-                  "Access to all current & future skills",
-                  "Dedicated AI modules in every skill",
-                  "International-standard curriculum",
-                  "Learn directly from mentors",
-                  "Client Acquisition Blueprint included",
-                  "Learn at your own pace",
-                  "Build a real earning career"
-                ];
-              })().map((item, i) => (
+              {[
+                "Learn 5 Skills + All Future Skills for 1 Full Year",
+                "Become Skill-Ready + AI-Ready for 2026",
+                "Dedicated AI Modules in every skill",
+                "International-standard curriculum",
+                "Learn directly from mentors working with global clients",
+                "Client Acquisition Blueprint included",
+                "Regular updates (NOT outdated 2018-style courses)",
+                "Proven frameworks to get international clients",
+                "Learn at your own pace, anywhere",
+                "Build a real earning career from your home"
+              ].map((item, i) => (
                 <li key={i} className="flex items-start gap-3 text-white text-sm">
                   <Check size={16} className="shrink-0 mt-0.5 text-[#0056FF]" />
                   <span>{item}</span>
