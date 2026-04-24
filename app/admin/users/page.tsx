@@ -57,6 +57,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api-client"
 import { getAuthToken } from "@/lib/auth"
+import { AddUserWithReferralModal } from "@/components/admin/AddUserWithReferralModal"
 
 interface User {
   id: number
@@ -100,6 +101,7 @@ export default function ManageUsersPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isAddWithReferralOpen, setIsAddWithReferralOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [editForm, setEditForm] = useState<Partial<User>>({})
@@ -472,6 +474,13 @@ export default function ManageUsersPage() {
             >
               <Plus className="w-4 h-4" />
               Add User
+            </Button>
+            <Button
+              onClick={() => setIsAddWithReferralOpen(true)}
+              className="bg-white text-[#8b5cf6] hover:bg-white/90 gap-2 flex-1 lg:flex-none shadow-lg"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add User with Referral
             </Button>
             <Button
               onClick={() => handleExportUsers()}
@@ -1144,6 +1153,12 @@ export default function ManageUsersPage() {
           </div>
         </DialogContent>
       </Dialog>
+      {/* Add User with Referral Modal */}
+      <AddUserWithReferralModal 
+        isOpen={isAddWithReferralOpen}
+        onClose={() => setIsAddWithReferralOpen(false)}
+        onSuccess={() => fetchUsers()}
+      />
     </div>
   )
 }

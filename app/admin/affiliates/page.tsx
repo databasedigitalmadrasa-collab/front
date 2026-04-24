@@ -27,7 +27,8 @@ import {
     CheckCircle2,
     XCircle,
     Copy,
-    ExternalLink
+    ExternalLink,
+    UserPlus
 } from "lucide-react"
 import {
     DropdownMenu,
@@ -49,6 +50,7 @@ import {
     DialogFooter,
     DialogClose
 } from "@/components/ui/dialog"
+import { AddUserWithReferralModal } from "@/components/admin/AddUserWithReferralModal"
 
 interface AffiliateUser {
     id: number
@@ -75,6 +77,8 @@ export default function AffiliatesPage() {
     const [walletAction, setWalletAction] = useState<"credit" | "debit">("credit")
     const [walletNote, setWalletNote] = useState("")
     const [isAdjustingWallet, setIsAdjustingWallet] = useState(false)
+    const [isAddUserModalOpen, setIsAddUserModalOpen] = useState(false)
+    const [affiliateForUserCreation, setAffiliateForUserCreation] = useState<AffiliateUser | null>(null)
 
     useEffect(() => {
         fetchAffiliates()
@@ -263,7 +267,7 @@ export default function AffiliatesPage() {
                                 <TableHead className="h-12">Referral Code</TableHead>
                                 <TableHead className="text-right h-12">
                                     <Button variant="ghost" size="sm" className="-ml-3 h-8 gap-1 font-medium hover:bg-transparent px-0">
-                                        Referrals
+                                        Referral Link Visits
                                         <ArrowUpDown className="w-3 h-3" />
                                     </Button>
                                 </TableHead>
@@ -366,6 +370,13 @@ export default function AffiliatesPage() {
                                                     <DropdownMenuItem>
                                                         <ExternalLink className="w-4 h-4 mr-2" />
                                                         View Full Profile
+                                                    </DropdownMenuItem>
+                                                    <DropdownMenuItem onClick={() => {
+                                                        setAffiliateForUserCreation(affiliate)
+                                                        setIsAddUserModalOpen(true)
+                                                    }}>
+                                                        <UserPlus className="w-4 h-4 mr-2" />
+                                                        Create Referral User
                                                     </DropdownMenuItem>
                                                     <DropdownMenuSeparator />
                                                     <DropdownMenuItem
@@ -496,6 +507,23 @@ export default function AffiliatesPage() {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <AddUserWithReferralModal
+                isOpen={isAddUserModalOpen}
+                onClose={() => {
+                    setIsAddUserModalOpen(false)
+                    setAffiliateForUserCreation(null)
+                }}
+                onSuccess={() => fetchAffiliates()}
+                initialAffiliate={affiliateForUserCreation ? {
+                    id: affiliateForUserCreation.id,
+                    user_id: affiliateForUserCreation.user_id,
+                    full_name: affiliateForUserCreation.full_name,
+                    email: affiliateForUserCreation.email,
+                    referral_code: affiliateForUserCreation.referral_code,
+                    profile_pic_url: affiliateForUserCreation.profile_pic_url || undefined
+                } : null}
+            />
         </div>
     )
 }
