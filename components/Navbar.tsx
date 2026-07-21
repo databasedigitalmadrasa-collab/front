@@ -7,13 +7,14 @@ import Link from 'next/link';
 interface NavbarProps {
   onNavigate?: (view: 'home' | 'about') => void;
   currentView?: 'home' | 'about';
+  planId?: number;
 }
 
 import Image from 'next/image';
 
 import { usePathname, useRouter } from 'next/navigation';
 
-const Navbar: React.FC<NavbarProps> = ({ onNavigate, currentView }) => {
+const Navbar: React.FC<NavbarProps> = ({ onNavigate, currentView, planId }) => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [activeHash, setActiveHash] = useState<string>("#");
@@ -123,7 +124,7 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, currentView }) => {
             Login
           </Link>
           <Link
-            href="/enroll/1"
+            href={`/enroll/${planId || 1}`}
             className="bg-royal-blue hover:bg-blue-600 text-white px-5 py-2.5 rounded-full text-sm font-medium transition-all shadow-lg shadow-blue-500/20"
           >
             Enroll Now
@@ -163,7 +164,7 @@ const Navbar: React.FC<NavbarProps> = ({ onNavigate, currentView }) => {
             Login
           </Link>
           <Link
-            href="/enroll/1"
+            href={`/enroll/${planId || 1}`}
             className="bg-royal-blue hover:bg-blue-600 w-full py-4 rounded-xl text-white font-bold text-lg text-center"
             onClick={() => setIsMobileMenuOpen(false)}
           >
