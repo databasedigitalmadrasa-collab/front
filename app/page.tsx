@@ -196,12 +196,12 @@ export default function DigitalMadarsaLanding() {
 
   return (
     <div className="min-h-screen flex flex-col w-full bg-offWhite">
-      <Navbar onNavigate={(view) => setActiveView(view)} currentView={activeView} />
+      <Navbar onNavigate={(view) => setActiveView(view)} currentView={activeView} planId={featuredPlan?.id} />
 
       <main className="flex-grow">
         {activeView === 'home' ? (
           <>
-            <Hero />
+            <Hero planId={featuredPlan?.id} />
             <Skills />
             <USP />
             <Mentors />

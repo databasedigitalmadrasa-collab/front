@@ -26,7 +26,11 @@ const tools = [
   // { name: 'Clipchamp', url: 'https://cdn.simpleicons.org/clipchamp/3C1E96' }
 ];
 
-const Hero: React.FC = () => {
+interface HeroProps {
+  planId?: number;
+}
+
+const Hero: React.FC<HeroProps> = ({ planId }) => {
   return (
     <section className="relative w-full min-h-screen bg-navy-black flex flex-col justify-between overflow-hidden pt-20 lg:pt-20 pb-0">
       {/* Ambient Background Effects */}
@@ -91,7 +95,7 @@ const Hero: React.FC = () => {
 
             {/* DESKTOP CTA (Hidden on Mobile) */}
             <div className="hidden lg:flex flex-col gap-4 items-center lg:items-start w-full">
-              <Link href="/enroll/1" className="w-full sm:w-auto group relative px-8 py-5 bg-royal-blue text-white rounded-full font-semibold text-lg overflow-hidden transition-all hover:scale-105 shadow-[0_0_40px_-10px_rgba(0,86,255,0.5)] inline-flex">
+              <Link href={`/enroll/${planId || 1}`} className="w-full sm:w-auto group relative px-8 py-5 bg-royal-blue text-white rounded-full font-semibold text-lg overflow-hidden transition-all hover:scale-105 shadow-[0_0_40px_-10px_rgba(0,86,255,0.5)] inline-flex">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:animate-[shimmer_1.5s_infinite]" />
                 <span className="flex items-center justify-center gap-2 w-full">
                   Enroll Now – Launch Offer <ArrowRight size={20} />
@@ -145,7 +149,7 @@ const Hero: React.FC = () => {
 
             {/* MOBILE CTA (Visible only on Mobile, immediately under video) */}
             <div className="flex lg:hidden flex-col gap-4 items-center w-full mt-2">
-              <Link href="/enroll/1" className="w-full group relative px-8 py-5 bg-royal-blue text-white rounded-full font-semibold text-lg overflow-hidden transition-all shadow-[0_0_40px_-10px_rgba(0,86,255,0.5)] block text-center">
+              <Link href={`/enroll/${planId || 1}`} className="w-full group relative px-8 py-5 bg-royal-blue text-white rounded-full font-semibold text-lg overflow-hidden transition-all shadow-[0_0_40px_-10px_rgba(0,86,255,0.5)] block text-center">
                 <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-100%] group-hover:animate-[shimmer_1.5s_infinite]" />
                 <span className="flex items-center justify-center gap-2">
                   Enroll Now – Launch Offer <ArrowRight size={20} />
