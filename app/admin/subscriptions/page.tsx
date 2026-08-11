@@ -173,10 +173,10 @@ export default function ManageSubscriptionsPage() {
   }
 
   const handleRecoverSubscription = async () => {
-    if (!recoverForm.user_id || !recoverForm.plan_id) {
+    if (!recoverForm.user_id || !recoverForm.plan_id || !recoverForm.invoice_id) {
       toast({
         title: "Validation Error",
-        description: "Please select user and plan",
+        description: "Please select user, plan and provide an invoice ID",
         variant: "destructive",
       })
       return
@@ -1361,6 +1361,16 @@ export default function ManageSubscriptionsPage() {
                     value={recoverForm.payment_log_id || ""}
                     onChange={(e) => setRecoverForm({ ...recoverForm, payment_log_id: parseInt(e.target.value) || null })}
                     placeholder="E.g. 123"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Invoice ID *</Label>
+                  <Input
+                    type="text"
+                    value={recoverForm.invoice_id || ""}
+                    onChange={(e) => setRecoverForm({ ...recoverForm, invoice_id: e.target.value })}
+                    placeholder="E.g. 202608001"
+                    required
                   />
                 </div>
               </div>
