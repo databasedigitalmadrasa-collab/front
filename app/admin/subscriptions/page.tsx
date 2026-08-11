@@ -362,12 +362,15 @@ export default function ManageSubscriptionsPage() {
   }
 
   // Get status badge
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | null) => {
     const badges: Record<string, string> = {
       active: "bg-green-100 text-green-700",
       inactive: "bg-gray-100 text-gray-700",
       past_due: "bg-orange-100 text-orange-700",
       cancelled: "bg-red-100 text-red-700",
+    }
+    if (!status) {
+      return <Badge className="bg-gray-100 text-gray-700">N/A</Badge>
     }
     return (
       <Badge className={badges[status] || "bg-gray-100 text-gray-700"}>
@@ -377,11 +380,14 @@ export default function ManageSubscriptionsPage() {
   }
 
   // Get transaction status badge
-  const getTxStatusBadge = (status: string) => {
+  const getTxStatusBadge = (status: string | null) => {
     const badges: Record<string, string> = {
       success: "bg-green-100 text-green-700",
       failed: "bg-red-100 text-red-700",
       pending: "bg-yellow-100 text-yellow-700",
+    }
+    if (!status) {
+      return <Badge className="bg-gray-100 text-gray-700">N/A</Badge>
     }
     return (
       <Badge className={badges[status] || "bg-gray-100 text-gray-700"}>
