@@ -120,9 +120,11 @@ export default function ManageSubscriptionsPage() {
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
+  const [isRecoverDialogOpen, setIsRecoverDialogOpen] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null)
   const [editForm, setEditForm] = useState<Partial<Subscription>>({})
+  const [recoverForm, setRecoverForm] = useState<any>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
@@ -168,6 +170,46 @@ export default function ManageSubscriptionsPage() {
     if (response.success && response.data) {
       setPlans(response.data.items || [])
     }
+  }
+
+  const handleRecoverSubscription = async () => {
+    if (!recoverForm.user_id || !recoverForm.plan_id) {
+      toast({
+        title: "Validation Error",
+        description: "Please select user and plan",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    const token = getAuthToken() || undefined
+
+    const requestBody = {
+      ...recoverForm,
+      subscription_amount_paid:
+        typeof recoverForm.subscription_amount_paid !== "undefined" ? Number(recoverForm.subscription_amount_paid) : null,
+      subscription_status: recoverForm.subscription_status || "active",
+    }
+
+    const response = await apiClient.post("/subscriptions/recover", requestBody, token)
+
+    if (response.success) {
+      toast({
+        title: "Success",
+        description: "Subscription recovered successfully",
+      })
+      setIsRecoverDialogOpen(false)
+      setRecoverForm({})
+      fetchSubscriptions()
+    } else {
+      toast({
+        title: "Error",
+        description: response.message || "Failed to recover subscription",
+        variant: "destructive",
+      })
+    }
+    setIsSubmitting(false)
   }
 
   const handleCreateSubscription = async () => {
@@ -435,6 +477,17 @@ export default function ManageSubscriptionsPage() {
               <p className="text-white/80 text-sm mt-1">Manage user subscriptions and recurring payments</p>
             </div>
             <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                className="gap-2 bg-white text-[#0066ff] hover:bg-white/90"
+                onClick={() => {
+                  setRecoverForm({})
+                  setIsRecoverDialogOpen(true)
+                }}
+              >
+                <RotateCw className="w-4 h-4" />
+                Recover Lost Subscription
+              </Button>
               <Button
                 variant="secondary"
                 className="gap-2 bg-white text-[#0066ff] hover:bg-white/90"
@@ -1248,6 +1301,132 @@ export default function ManageSubscriptionsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <Dialog open={isRecoverDialogOpen} onOpenChange={setIsRecoverDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Recover Lost Subscription</DialogTitle>
+            </DialogHeader>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>User</Label>
+                  <Select
+                    value={recoverForm.user_id?.toString() || ""}
+                    onValueChange={(val) => setRecoverForm({ ...recoverForm, user_id: parseInt(val) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select user" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.id.toString()}>
+                          {u.name} ({u.email})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Plan</Label>
+                  <Select
+                    value={recoverForm.plan_id?.toString() || ""}
+                    onValueChange={(val) => setRecoverForm({ ...recoverForm, plan_id: parseInt(val) })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select plan" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {plans.map((p) => (
+                        <SelectItem key={p.id} value={p.id.toString()}>
+                          {p.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4">
+                <div className="space-y-2">
+                  <Label>Payment Log ID (Optional)</Label>
+                  <Input
+                    type="number"
+                    value={recoverForm.payment_log_id || ""}
+                    onChange={(e) => setRecoverForm({ ...recoverForm, payment_log_id: parseInt(e.target.value) || null })}
+                    placeholder="E.g. 123"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Start Date</Label>
+                  <Input
+                    type="date"
+                    value={recoverForm.start_date ? recoverForm.start_date.split("T")[0] : ""}
+                    onChange={(e) => setRecoverForm({ ...recoverForm, start_date: new Date(e.target.value).toISOString() })}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Renewal Date</Label>
+                  <Input
+                    type="date"
+                    value={recoverForm.renewal_date ? recoverForm.renewal_date.split("T")[0] : ""}
+                    onChange={(e) => setRecoverForm({ ...recoverForm, renewal_date: new Date(e.target.value).toISOString() })}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Amount Paid (₹)</Label>
+                  <Input
+                    type="number"
+                    value={recoverForm.subscription_amount_paid !== undefined ? recoverForm.subscription_amount_paid / 100 : ""}
+                    onChange={(e) =>
+                      setRecoverForm({
+                        ...recoverForm,
+                        subscription_amount_paid: Math.round(parseFloat(e.target.value) * 100),
+                      })
+                    }
+                    placeholder="0.00"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Subscription Status</Label>
+                  <Select
+                    value={recoverForm.subscription_status || "active"}
+                    onValueChange={(val) => setRecoverForm({ ...recoverForm, subscription_status: val })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="inactive">Inactive</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsRecoverDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRecoverSubscription} disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Recovering...
+                  </>
+                ) : (
+                  "Recover Subscription"
+                )}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </div>
   )
