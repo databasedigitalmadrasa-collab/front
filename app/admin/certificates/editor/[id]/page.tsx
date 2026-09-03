@@ -38,6 +38,25 @@ import {
 import * as fabric from "fabric"
 import apiClient from "@/lib/api-client"
 import { getAuthToken } from "@/lib/auth"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 const ASPECT_RATIOS = [
   { label: "16:9", value: "16:9", width: 900, height: 506 },
@@ -51,7 +70,9 @@ const ASPECT_RATIOS = [
 const DEFAULT_RATIO = ASPECT_RATIOS[0]
 
 const CERTIFICATE_BG = "/certificate-bg.png"
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
 
 const GOOGLE_FONTS = [
   { name: "Arial", value: "Arial", isSystem: true },
@@ -491,7 +512,7 @@ export default function CertificateEditorPage() {
 
       if (file.size > LARGE_FILE_THRESHOLD) {
         // Use presigned URL for large files
-        const presignResponse = await fetch(
+        const presignResponse = await adminFetch(
           `${API_BASE_URL}/r2/static-bucket/presign?key=${encodeURIComponent(filePath)}`,
         )
         const presignData = await presignResponse.json()
@@ -550,6 +571,15 @@ export default function CertificateEditorPage() {
             "POST",
             `${API_BASE_URL}/static/objects?path=${encodeURIComponent(filePath)}&contentType=${encodeURIComponent(contentType)}`,
           )
+          // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+          // dm-backend, which let anyone overwrite any key). XHR is outside
+          // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+          // elsewhere in this file deliberately does NOT get this header — it
+          // would break the S3 signature.
+          {
+            const adminToken = getAdminToken()
+            if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+          }
           xhr.send(file)
         })
       }

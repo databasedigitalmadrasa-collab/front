@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Check, Shield, ArrowLeft, Tag, X, Loader2, Lock, Sparkles, ShieldCheck } from "lucide-react"
 import Link from "next/link"
+import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
 declare global {
   interface Window {
@@ -71,7 +72,10 @@ const INDIAN_STATES = [
   "Lakshadweep",
 ]
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL comes from lib/dm-api so a backend cutover is one env var. This page
+// keeps raw fetch rather than the dmApi helper: the Razorpay handler runs
+// outside React's lifecycle and reads the raw envelope fields directly.
+const API_BASE_URL = DM_API_BASE_URL
 
 export default function EnrollPage() {
   const params = useParams()
@@ -248,7 +252,7 @@ export default function EnrollPage() {
     setReferralStatus("idle")
 
     try {
-      const response = await fetch("https://srv.digitalmadrasa.co.in/api/v1/verify-referral", {
+      const response = await fetch(`${API_BASE_URL}/verify-referral`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -330,6 +334,15 @@ export default function EnrollPage() {
 
       const amount = pricing.discountedPrice * 100
 
+      // One place builds the post-payment URL, so the success path and the
+      // "payment worked but our logging call did not" path cannot drift apart.
+      const successUrl = (response: any, uuid: string) =>
+        `/payment/callback?status=success` +
+        `&razorpay_order_id=${encodeURIComponent(response.razorpay_order_id)}` +
+        `&razorpay_payment_id=${encodeURIComponent(response.razorpay_payment_id)}` +
+        `&razorpay_signature=${encodeURIComponent(response.razorpay_signature)}` +
+        `&uuid=${encodeURIComponent(uuid)}`
+
       const enrollmentData = {
         full_name: formData.fullName,
         email: formData.email,
@@ -346,9 +359,15 @@ export default function EnrollPage() {
         ...(referralStatus === "valid" && formData.referralCode ? { referral_code: formData.referralCode } : {}),
       }
 
-      // 1. Store temporary enrollment data
+      // 1. Store temporary enrollment data.
+      //
+      // sessionStorage is tab-scoped and dies with the tab. That is the known
+      // weak point of this flow — see the recovery branch in
+      // app/payment/callback/page.tsx, which now reports a captured payment
+      // honestly instead of showing "Payment Failed" and inviting a second
+      // charge. The password lives here in plaintext and deliberately does NOT
+      // get copied anywhere more durable.
       sessionStorage.setItem("enrollmentData", JSON.stringify(enrollmentData))
-      console.log("Enrollment data stored:", enrollmentData)
 
       // 2. Create Razorpay Order on Backend
       const orderRes = await fetch(`${API_BASE_URL}/razorpay/create-order`, {
@@ -415,10 +434,16 @@ export default function EnrollPage() {
                 razorpay_signature: response.razorpay_signature
               })
             });
-            window.location.href = `/payment/callback?status=success&razorpay_order_id=${response.razorpay_order_id}&razorpay_payment_id=${response.razorpay_payment_id}&razorpay_signature=${response.razorpay_signature}&uuid=${paymentLogUuid}`;
+            window.location.href = successUrl(response, paymentLogUuid);
           } catch (err) {
-            console.error("Success handling failed:", err);
-            window.location.href = `/payment/callback?status=failed&orderId=${merchantOrderId}`;
+            // The payment SUCCEEDED — this catch only covers the bookkeeping
+            // PUT above. Redirecting to status=failed without the Razorpay
+            // params (as this used to) told the customer their payment failed,
+            // skipped enrolment entirely, and left the money collected. Carry
+            // the params through regardless; the callback page verifies the
+            // signature server-side, which is the only opinion that counts.
+            console.error("Payment log update failed after a successful payment:", err);
+            window.location.href = successUrl(response, paymentLogUuid);
           }
         },
         modal: {

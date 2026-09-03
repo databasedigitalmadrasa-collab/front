@@ -35,6 +35,7 @@ import { useToast } from "@/hooks/use-toast"
 import apiClient from "@/lib/api-client"
 import { getUserToken } from "@/lib/user-auth"
 import { useUserAuth } from "@/hooks/use-user-auth"
+import { dmApi } from "@/lib/dm-api"
 
 interface PayoutRequest {
   id: number
@@ -283,24 +284,33 @@ export default function WalletPage() {
   const [aadhaarFile, setAadhaarFile] = useState<File | null>(null)
   const [panFile, setPanFile] = useState<File | null>(null)
 
+  /**
+   * Upload a KYC document.
+   *
+   * `path` is now only a hint for the stored filename. dm-api's learner-scoped
+   * route composes the real key under `uploads/users/<token subject>/` from the
+   * caller's own token, because /static/objects — which took an arbitrary
+   * `?path=` and was anonymous in dm-backend — is `requireAdmin()` now. It also
+   * returns the public URL, so this no longer guesses a CDN path that could
+   * drift from where the object actually landed.
+   */
   const uploadFile = async (file: File, path: string): Promise<string | null> => {
     try {
       const contentType = file.type || "application/octet-stream"
-      const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "https://srv.digitalmadrasa.co.in"
-      const uploadUrl = `${baseUrl}/api/v1/static/objects?path=${encodeURIComponent(path)}&contentType=${encodeURIComponent(contentType)}`
+      const filename = path.split("/").pop() || file.name
 
-      // Use fetch for simplicity, Mentors page used XHR for progress but here we just need success
-      const response = await fetch(uploadUrl, {
-        method: "POST",
-        body: file,
-      })
+      const response = await dmApi.raw(
+        `/r2/my-upload?filename=${encodeURIComponent(filename)}`,
+        { method: "POST", headers: { "Content-Type": contentType }, body: file },
+        { principal: "user" },
+      )
 
-      if (!response.ok) {
-        throw new Error("Upload failed")
+      const uploaded = await response.json()
+      if (!response.ok || !uploaded.success || !uploaded.url) {
+        throw new Error(uploaded.error || "Upload failed")
       }
 
-      // Success. Public URL construction
-      return `https://cdn.digitalmadrasa.co.in/${path}`
+      return uploaded.url as string
     } catch (e) {
       console.error("Upload error:", e)
       return null

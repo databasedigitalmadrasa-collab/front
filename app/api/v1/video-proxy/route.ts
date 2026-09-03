@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { apiUrl } from "@/lib/dm-api"
 
 export async function GET(request: NextRequest) {
   const searchParams = request.searchParams
@@ -17,7 +18,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Forward request to actual video API with auth
-    const videoUrl = `https://srv.digitalmadrasa.co.in/api/v1/video?bucket=${bucket}&key=${encodeURIComponent(key)}`
+    const videoUrl = apiUrl(`/video?bucket=${bucket}&key=${encodeURIComponent(key)}`)
 
     const response = await fetch(videoUrl, {
       headers: {

@@ -2,7 +2,7 @@
 import { notFound } from "next/navigation"
 import Navbar from "@/components/Navbar"
 import Footer from "@/components/Footer"
-import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 import MarkdownClientWrapper from "@/components/MarkdownClientWrapper"
 
 
@@ -12,17 +12,24 @@ interface PolicyPageProps {
     }>
 }
 
+interface SettingsPageResponse {
+    success: boolean
+    content?: string
+}
+
 async function getPolicyContent(slug: string) {
     try {
         // API endpoint created in adminSettingsController: /settings?page=...
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://srv.digitalmadrasa.co.in'}/api/v1/settings?page=${slug}`, {
+        // No token: this renders on the server (localStorage is unreachable), and
+        // dm-api's miscRouter registers GET /settings with no auth middleware.
+        const result = await dmApi.get<SettingsPageResponse>(`/settings?page=${slug}`, {
             cache: 'no-store'
         });
 
-        if (!response.ok) return null;
-        const data = await response.json();
+        if (!result.ok) return null;
+        const data = result.data;
 
-        if (data.success && data.content) {
+        if (data?.success && data.content) {
             return {
                 content: data.content,
                 title: getTitleFromSlug(slug)

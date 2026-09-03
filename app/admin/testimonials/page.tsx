@@ -41,6 +41,7 @@ import apiClient from "@/lib/api-client"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
 import { cn } from "@/lib/utils"
+import { apiUrl } from "@/lib/dm-api"
 
 interface Testimonial {
     id: number
@@ -157,7 +158,7 @@ export default function TestimonialsPage() {
         try {
             const filename = `student-feedback/${Date.now()}-${file.name.replace(/\s+/g, '-')}`
             // changed from 'media' to 'static'
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL || 'https://srv.digitalmadrasa.co.in'}/api/v1/static/objects?path=${filename}`, {
+            const response = await fetch(apiUrl(`/static/objects?path=${filename}`), {
                 method: 'POST',
                 headers: {
                     'Content-Type': file.type,

@@ -6,9 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import Link from "next/link"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 import { useToast } from "@/hooks/use-toast"
-import { getAdminToken } from "@/lib/auth"
 
 interface Course {
   id: number
@@ -38,26 +37,21 @@ export default function ManageCoursesPage() {
   const [publishLoading, setPublishLoading] = useState<number | null>(null)
   const { toast } = useToast()
 
-  const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
-
   const fetchCourses = async () => {
     setLoading(true)
     try {
-      const token = getAdminToken()
-      const response = await fetch(`${API_BASE_URL}/courses`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
+      const result = await dmApi.get<{ success: boolean; items?: Course[]; message?: string }>(
+        "/courses",
+        { principal: "admin" },
+      )
+      const data = result.data
 
-      const data = await response.json()
-
-      if (data.success && data.items) {
+      if (data?.success && data.items) {
         setCourses(data.items || [])
       } else {
         toast({
           title: "Error",
-          description: data.message || "Failed to fetch courses",
+          description: data?.message || result.error || "Failed to fetch courses",
           variant: "destructive",
         })
       }
@@ -78,10 +72,9 @@ export default function ManageCoursesPage() {
 
     setDeleteLoading(courseId)
     try {
-      const token = getAdminToken()
-      const response = await apiClient.delete(`/courses/${courseId}`, token)
+      const response = await dmApi.delete(`/courses/${courseId}`, { principal: "admin" })
 
-      if (response.success) {
+      if (response.ok) {
         toast({
           title: "Success",
           description: "Course deleted successfully",
@@ -90,7 +83,7 @@ export default function ManageCoursesPage() {
       } else {
         toast({
           title: "Error",
-          description: response.message || "Failed to delete course",
+          description: response.error || "Failed to delete course",
           variant: "destructive",
         })
       }
@@ -109,21 +102,16 @@ export default function ManageCoursesPage() {
   const handlePublishToggle = async (courseId: number, currentPublishStatus: boolean | number) => {
     setPublishLoading(courseId)
     try {
-      const token = getAdminToken()
       const isPublished = typeof currentPublishStatus === "number" ? currentPublishStatus === 1 : currentPublishStatus
 
-      const response = await fetch(`${API_BASE_URL}/courses/${courseId}/publish`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ publish: !isPublished }),
-      })
+      const result = await dmApi.put<{ success: boolean; message?: string }>(
+        `/courses/${courseId}/publish`,
+        { publish: !isPublished },
+        { principal: "admin" },
+      )
+      const data = result.data
 
-      const data = await response.json()
-
-      if (data.success) {
+      if (data?.success) {
         toast({
           title: "Success",
           description: isPublished ? "Course unpublished successfully" : "Course published successfully",
@@ -132,7 +120,7 @@ export default function ManageCoursesPage() {
       } else {
         toast({
           title: "Error",
-          description: data.message || "Failed to update course status",
+          description: data?.message || result.error || "Failed to update course status",
           variant: "destructive",
         })
       }

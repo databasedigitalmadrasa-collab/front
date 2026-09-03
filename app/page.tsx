@@ -19,6 +19,7 @@ import FAQ from "@/components/FAQ";
 import AboutPage from "@/components/AboutPage";
 import { ScrollDownButton } from "@radix-ui/react-select";
 import Footer from "@/components/Footer";
+import { apiUrl } from "@/lib/dm-api"
 
 export default function DigitalMadarsaLanding() {
   const [isScrolled, setIsScrolled] = useState(false)
@@ -179,7 +180,7 @@ export default function DigitalMadarsaLanding() {
   useEffect(() => {
     const fetchPlan = async () => {
       try {
-        const res = await fetch('https://dm-backend.copybykhan.workers.dev/api/v1/subscription-plans');
+        const res = await fetch(apiUrl('/subscription-plans'));
         if (res.ok) {
           const data = await res.json();
           // Find exactly the featured plan (is_featured === 1)

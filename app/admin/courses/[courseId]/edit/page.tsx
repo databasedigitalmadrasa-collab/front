@@ -32,8 +32,29 @@ import MediaSelectorModal from "@/components/admin/media-selector-modal"
 import { getAdminToken } from "@/lib/auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 interface Resource {
   id: string
@@ -163,6 +184,15 @@ export default function CourseEditPage() {
 
         const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
         xhr.open("POST", uploadUrl)
+        // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+        // dm-backend, which let anyone overwrite any key). XHR is outside
+        // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+        // elsewhere in this file deliberately does NOT get this header — it
+        // would break the S3 signature.
+        {
+          const adminToken = getAdminToken()
+          if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+        }
         xhr.send(file)
       })
 
@@ -189,7 +219,7 @@ export default function CourseEditPage() {
     setIsSaving(true)
     try {
       const token = getAdminToken()
-      const response = await fetch(`${API_BASE_URL}/courses/${params.courseId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/courses/${params.courseId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -226,7 +256,7 @@ export default function CourseEditPage() {
     setIsLoading(true)
     try {
       // Load modules for this course
-      const modulesResponse = await fetch(`${API_BASE_URL}/course-modules?course_id=${params.courseId}`)
+      const modulesResponse = await adminFetch(`${API_BASE_URL}/course-modules?course_id=${params.courseId}`)
       if (!modulesResponse.ok) throw new Error("Failed to fetch modules")
 
       const modulesData = await modulesResponse.json()
@@ -238,7 +268,7 @@ export default function CourseEditPage() {
       )
 
       // Load lessons for this course (all at once, then distribute to modules)
-      const lessonsResponse = await fetch(`${API_BASE_URL}/lessons?course_id=${params.courseId}`)
+      const lessonsResponse = await adminFetch(`${API_BASE_URL}/lessons?course_id=${params.courseId}`)
       if (!lessonsResponse.ok) throw new Error("Failed to fetch lessons")
 
       const lessonsData = await lessonsResponse.json()
@@ -280,7 +310,7 @@ export default function CourseEditPage() {
       }
 
       // Load course details
-      const courseResponse = await fetch(`${API_BASE_URL}/courses/${params.courseId}`)
+      const courseResponse = await adminFetch(`${API_BASE_URL}/courses/${params.courseId}`)
       if (courseResponse.ok) {
         const courseData = await courseResponse.json()
         if (courseData.success && courseData.data) {
@@ -309,7 +339,7 @@ export default function CourseEditPage() {
         description: "",
       }
 
-      const response = await fetch(`${API_BASE_URL}/course-modules`, {
+      const response = await adminFetch(`${API_BASE_URL}/course-modules`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newModuleData),
@@ -346,7 +376,7 @@ export default function CourseEditPage() {
 
   const updateModuleTitle = async (moduleId: string, newTitle: string) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/course-modules/${moduleId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/course-modules/${moduleId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title: newTitle }),
@@ -388,12 +418,12 @@ export default function CourseEditPage() {
 
       // Update positions in API
       const [response1, response2] = await Promise.all([
-        fetch(`${API_BASE_URL}/course-modules/${currentModule.id}`, {
+        adminFetch(`${API_BASE_URL}/course-modules/${currentModule.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ position: newIndex }),
         }),
-        fetch(`${API_BASE_URL}/course-modules/${swapModule.id}`, {
+        adminFetch(`${API_BASE_URL}/course-modules/${swapModule.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ position: currentIndex }),
@@ -428,7 +458,7 @@ export default function CourseEditPage() {
     if (!confirm("Are you sure you want to delete this module and all its lessons?")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/course-modules/${moduleId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/course-modules/${moduleId}`, {
         method: "DELETE",
       })
 
@@ -481,7 +511,7 @@ export default function CourseEditPage() {
 
       console.log("Creating lesson with data:", newLessonData)
 
-      const response = await fetch(`${API_BASE_URL}/lessons`, {
+      const response = await adminFetch(`${API_BASE_URL}/lessons`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newLessonData),
@@ -547,7 +577,7 @@ export default function CourseEditPage() {
         duration_seconds: currentLessonData.duration_seconds || 0,
       }
 
-      const response = await fetch(`${API_BASE_URL}/lessons/${selectedLesson}`, {
+      const response = await adminFetch(`${API_BASE_URL}/lessons/${selectedLesson}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updateData),
@@ -614,7 +644,7 @@ export default function CourseEditPage() {
     if (!confirm("Are you sure you want to delete this lesson?")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/lessons/${lessonId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/lessons/${lessonId}`, {
         method: "DELETE",
       })
 
@@ -706,7 +736,7 @@ export default function CourseEditPage() {
     setIsLoadingResources(true)
     try {
       const token = getAdminToken()
-      const response = await fetch(`${API_BASE_URL}/lesson-resources?lesson_id=${lessonId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/lesson-resources?lesson_id=${lessonId}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -757,6 +787,15 @@ export default function CourseEditPage() {
 
         const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
         xhr.open("POST", uploadUrl)
+        // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+        // dm-backend, which let anyone overwrite any key). XHR is outside
+        // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+        // elsewhere in this file deliberately does NOT get this header — it
+        // would break the S3 signature.
+        {
+          const adminToken = getAdminToken()
+          if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+        }
         xhr.send(file)
       })
 
@@ -790,7 +829,7 @@ export default function CourseEditPage() {
       if (resourceFormData.url) body.url = resourceFormData.url
       if (resourceFormData.file_url) body.file_url = resourceFormData.file_url
 
-      const response = await fetch(`${API_BASE_URL}/lesson-resources`, {
+      const response = await adminFetch(`${API_BASE_URL}/lesson-resources`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -843,7 +882,7 @@ export default function CourseEditPage() {
       if (resourceFormData.url) body.url = resourceFormData.url
       if (resourceFormData.file_url) body.file_url = resourceFormData.file_url
 
-      const response = await fetch(`${API_BASE_URL}/lesson-resources/${editingResource.id}`, {
+      const response = await adminFetch(`${API_BASE_URL}/lesson-resources/${editingResource.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -878,7 +917,7 @@ export default function CourseEditPage() {
     if (!window.confirm("Are you sure you want to delete this resource?")) return
 
     try {
-      const response = await fetch(`${API_BASE_URL}/lesson-resources/${resourceId}`, {
+      const response = await adminFetch(`${API_BASE_URL}/lesson-resources/${resourceId}`, {
         method: "DELETE",
       })
 

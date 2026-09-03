@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { AlertCircle } from "lucide-react"
+import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
 
 export default function ReferralRedirect() {
   const params = useParams()

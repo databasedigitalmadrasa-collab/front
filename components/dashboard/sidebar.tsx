@@ -3,7 +3,7 @@ import Link from "next/link"
 import { usePathname, useRouter } from "next/navigation"
 import Image from "next/image"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { LayoutDashboard, BookOpen, Award, CreditCard, Settings, HelpCircle, X, LogOut } from "lucide-react"
+import { LayoutDashboard, BookOpen, Award, CreditCard, Settings, HelpCircle, X, LogOut, Radio } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useUserAuth } from "@/hooks/use-user-auth"
 
@@ -19,6 +19,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
 
   const navItems = [
     { name: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
+    { name: "Live Classes", icon: Radio, href: "/dashboard/live-classes" },
     { name: "My Skills", icon: BookOpen, href: "/dashboard/skills" },
     { name: "Certificates", icon: Award, href: "/dashboard/certificates" },
     { name: "Billing", icon: CreditCard, href: "/dashboard/billing" },
