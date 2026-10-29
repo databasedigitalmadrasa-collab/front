@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Check, Shield, ArrowLeft, Tag, X, Loader2, Lock, Sparkles, ShieldCheck } from "lucide-react"
+import { Check, Shield, ArrowLeft, Tag, X, Loader2, Lock, ShieldCheck } from "lucide-react"
 import Link from "next/link"
 import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
@@ -29,6 +29,7 @@ interface SubscriptionPlan {
   subscription_type: string
   gst_tax: number
   whats_included: string
+  is_featured: number | string | boolean
   created_at: string
   updated_at: string
 }
@@ -85,10 +86,8 @@ export default function EnrollPage() {
   const refFromUrl = searchParams.get("ref")
 
   const [planData, setPlanData] = useState<SubscriptionPlan | null>(null)
-  const [allPlans, setAllPlans] = useState<SubscriptionPlan[]>([])
   const [isLoadingPlan, setIsLoadingPlan] = useState(true)
   const [planError, setPlanError] = useState<string | null>(null)
-  const [selectedPlanId, setSelectedPlanId] = useState<string>(planId)
 
   const [formData, setFormData] = useState({
     email: "",
@@ -121,61 +120,26 @@ export default function EnrollPage() {
       setIsLoadingPlan(true)
       setPlanError(null)
 
-      if (!planId || planId === "select") {
-        // No plan ID provided, show plan selection
-        try {
-          const allPlansResponse = await fetch(`${API_BASE_URL}/subscription-plans`)
-          const allPlansResult = await allPlansResponse.json()
-
-          if (allPlansResult.success && allPlansResult.items) {
-            console.log("All plans fetched for selection:", allPlansResult.items)
-            setAllPlans(allPlansResult.items)
-            setPlanError("selection") // Special flag to show selection UI
-          }
-        } catch (error) {
-          console.error("Error fetching all plans:", error)
-          setPlanError("Error loading plans. Please try again.")
-        }
-        setIsLoadingPlan(false)
-        return
-      }
-
+      // Only the featured plan is sold publicly. It is resolved from the list
+      // rather than trusted from the URL, so stale links (/enroll/1), unknown ids
+      // and ids of non-featured plans all land on the featured checkout instead
+      // of exposing the rest of the price list.
       try {
-        console.log("Fetching plan data for ID:", planId)
+        const response = await fetch(`${API_BASE_URL}/subscription-plans`)
+        const result = await response.json()
+        const featured: SubscriptionPlan | undefined = result.success
+          ? result.items?.find((plan: SubscriptionPlan) => Number(plan.is_featured) === 1)
+          : undefined
 
-        // Try to fetch specific plan
-        const planResponse = await fetch(`${API_BASE_URL}/subscription-plans/${planId}`)
-
-        if (planResponse.ok) {
-          const planResult = await planResponse.json()
-          console.log("Plan API response:", planResult)
-
-          if (planResult.success && planResult.data) {
-            setPlanData(planResult.data)
-            setPlanError(null)
-            console.log("Plan data set successfully:", planResult.data)
-          } else {
-            throw new Error("Plan not found")
-          }
+        if (featured) {
+          setPlanData(featured)
         } else {
-          throw new Error("Plan not found")
+          setPlanData(null)
+          setPlanError("Enrollment is not open right now. Please check back soon.")
         }
       } catch (error) {
-        console.error("Error fetching plan:", error)
-        setPlanError("Invalid plan ID. Please select a plan below.")
-
-        // Fetch all plans if specific plan fails
-        try {
-          const allPlansResponse = await fetch(`${API_BASE_URL}/subscription-plans`)
-          const allPlansResult = await allPlansResponse.json()
-
-          if (allPlansResult.success && allPlansResult.items) {
-            console.log("All plans fetched:", allPlansResult.items)
-            setAllPlans(allPlansResult.items)
-          }
-        } catch (allPlansError) {
-          console.error("Error fetching all plans:", allPlansError)
-        }
+        console.error("Error fetching featured plan:", error)
+        setPlanError("Error loading plan. Please try again.")
       } finally {
         setIsLoadingPlan(false)
       }
@@ -484,11 +448,6 @@ export default function EnrollPage() {
     }
   }
 
-  const handlePlanSelection = (newPlanId: string) => {
-    setSelectedPlanId(newPlanId)
-    window.location.href = `/enroll/${newPlanId}${refFromUrl ? `?ref=${refFromUrl}` : ""}`
-  }
-
   if (isLoadingPlan) {
     return (
       <div className="min-h-screen grid-background bg-[#fafafa] flex items-center justify-center px-4">
@@ -496,147 +455,6 @@ export default function EnrollPage() {
           <Loader2 className="w-12 h-12 text-[#0066ff] animate-spin mx-auto mb-4" />
           <p className="text-lg text-[#4b4b4b]">Loading plan details...</p>
         </div>
-      </div>
-    )
-  }
-
-  if (planError === "selection" || (planError && allPlans.length > 0)) {
-    return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-        {/* Header - Made fully responsive with better mobile spacing */}
-        <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-50">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4">
-            <div className="flex items-center justify-between">
-              <Link
-                href="/"
-                className="flex items-center gap-1.5 sm:gap-2 text-slate-600 hover:text-blue-600 transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
-                <span className="font-medium text-sm sm:text-base">Back</span>
-              </Link>
-              <div className="font-heading text-lg sm:text-2xl md:text-5xl lg:text-6xl font-bold text-slate-900">
-                Digital Madrasa
-              </div>
-              <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm text-slate-600">
-                <Shield className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                <span className="hidden sm:inline">Secure</span>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        {/* Main Content - Improved mobile padding and spacing */}
-        <main className="pt-8 sm:pt-12 lg:pt-16 pb-12 sm:pb-16 lg:pb-24 px-4 sm:px-6 lg:px-8">
-          <div className="max-w-7xl mx-auto">
-            {/* Page Title - Responsive text sizes and spacing */}
-            <div className="text-center mb-8 sm:mb-12 lg:mb-16">
-              <div className="inline-flex items-center gap-2 bg-blue-50 text-blue-600 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full text-xs sm:text-sm font-medium mb-4 sm:mb-6">
-                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                Choose Your Plan
-              </div>
-              <h1 className="font-heading text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-slate-900 mb-3 sm:mb-4 lg:mb-6 px-4">
-                Start Your Learning Journey
-              </h1>
-              <p className="text-base sm:text-lg lg:text-xl text-slate-600 max-w-3xl mx-auto px-4">
-                Select the perfect plan for your goals and unlock your potential today
-              </p>
-            </div>
-
-            {/* Plans Grid - Responsive grid with single column on mobile */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 max-w-7xl mx-auto">
-              {allPlans.map((plan) => {
-                const planPricing = getPlanPricing(plan)
-                const planFeatures = getPlanFeatures(plan)
-
-                return (
-                  <div
-                    key={plan.id}
-                    className="group bg-white rounded-2xl sm:rounded-3xl shadow-sm border border-slate-200 hover:border-blue-500 hover:shadow-2xl transition-all duration-300 p-6 sm:p-8 flex flex-col relative overflow-hidden"
-                  >
-                    {/* Decorative element */}
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-transparent rounded-bl-full opacity-0 group-hover:opacity-100 transition-opacity" />
-
-                    {/* Plan Header */}
-                    <div className="mb-4 sm:mb-6 relative">
-                      <h3 className="font-heading text-xl sm:text-2xl font-bold text-slate-900 mb-2">{plan.title}</h3>
-                      <p className="text-slate-600 text-sm">{plan.description}</p>
-                    </div>
-
-                    {/* Pricing - Responsive text sizes */}
-                    <div className="mb-6 sm:mb-8">
-                      {planPricing.savings > 0 && (
-                        <div className="mb-3">
-                          <span className="text-base sm:text-lg text-slate-400 line-through">
-                            ₹{planPricing.originalPrice}
-                          </span>
-                          <span className="ml-2 sm:ml-3 inline-block bg-gradient-to-r from-red-500 to-orange-500 text-white px-2.5 sm:px-3 py-1 rounded-full text-xs font-bold">
-                            SAVE {Math.round((planPricing.savings / planPricing.originalPrice) * 100)}%
-                          </span>
-                        </div>
-                      )}
-                      <div className="flex items-baseline gap-2">
-                        <span className="font-heading text-4xl sm:text-5xl font-bold text-slate-900">
-                          ₹{planPricing.discountedPrice}
-                        </span>
-                        <span className="text-sm sm:text-base text-slate-600">
-                          /{planPricing.isYearly ? "year" : "month"}
-                        </span>
-                      </div>
-                      {planPricing.isYearly && (
-                        <p className="text-sm text-slate-600 mt-2">That's just ₹{planPricing.monthlyPrice}/month</p>
-                      )}
-                      {plan.gst_tax > 0 && (
-                        <p className="text-xs text-slate-500 mt-1">Inclusive of {plan.gst_tax}% GST</p>
-                      )}
-                    </div>
-
-                    {/* Features */}
-                    {planFeatures.length > 0 && (
-                      <div className="mb-6 sm:mb-8 flex-grow">
-                        <div className="space-y-3">
-                          {planFeatures.map((feature, index) => (
-                            <div key={index} className="flex items-start gap-2 sm:gap-3">
-                              <div className="w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-blue-100 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <Check className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-blue-600" />
-                              </div>
-                              <span className="text-sm text-slate-700">{feature}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* CTA Button */}
-                    <Button
-                      onClick={() => handlePlanSelection(plan.id.toString())}
-                      className="w-full h-11 sm:h-12 bg-slate-900 hover:bg-blue-600 text-white font-semibold rounded-xl transition-all duration-300 shadow-lg shadow-slate-900/10 hover:shadow-blue-500/30 text-sm sm:text-base"
-                    >
-                      Get Started
-                    </Button>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Trust Indicators - Stack on mobile, responsive spacing */}
-            <div className="mt-12 sm:mt-16 lg:mt-20 text-center">
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 text-sm text-slate-600">
-                <div className="flex items-center gap-2">
-                  <Shield className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-                  <span>Secure Payment</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-                  <span>Data Protected</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Check className="w-4 h-4 sm:w-5 sm:h-5 text-green-600" />
-                  <span>Cancel Anytime</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </main>
       </div>
     )
   }
@@ -1024,6 +842,15 @@ export default function EnrollPage() {
                   {/* Money Back Guarantee */}
                 </div>
               </div>
+            </div>
+          )}
+
+          {!planData && planError && (
+            <div className="max-w-md mx-auto text-center bg-white rounded-xl sm:rounded-2xl shadow-sm border border-slate-200 p-6 sm:p-8">
+              <p className="text-slate-700 mb-6">{planError}</p>
+              <Link href="/" className="text-blue-600 hover:underline font-medium">
+                Back to home
+              </Link>
             </div>
           )}
         </div>
