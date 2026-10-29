@@ -29,7 +29,6 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import MediaSelectorModal from "@/components/admin/media-selector-modal"
-import { getAdminToken } from "@/lib/auth"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
