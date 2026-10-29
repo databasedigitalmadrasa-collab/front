@@ -28,8 +28,12 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { getUser, getUserToken } from "@/lib/user-auth"
 import VideoPlayer from "@/components/video-player"
+import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://srv.digitalmadrasa.co.in/api/v1"
+// Was `process.env.NEXT_PUBLIC_API_URL` — a variable defined in no env
+// file, so this always silently fell through to the hardcoded host and
+// would not have followed a backend cutover.
+const API_BASE_URL = DM_API_BASE_URL
 
 interface Resource {
   id: number
@@ -401,11 +405,14 @@ export default function CourseAccessPage() {
     }
     setVideoLoading(true)
     const duration = currentLesson.duration_seconds || 0
-    const url = `/api/video?key=${encodeURIComponent(currentLesson.r2_key)}&duration=${duration}`
+    // `lessonId`, not `key`. dm-api's learner video route resolves the object
+    // key from `lessons.r2_key` itself and checks the subscription; the
+    // key-based route it replaces here is admin-only, because signing an
+    // arbitrary key is the ability to read any object in the bucket.
+    const url = `/api/video?lessonId=${encodeURIComponent(String(currentLesson.id))}&duration=${duration}`
     setVideoBlobUrl(url)
     setVideoLoading(false)
-    setVideoLoading(false)
-  }, [currentLesson?.r2_key, currentLesson?.duration_seconds])
+  }, [currentLesson?.id, currentLesson?.r2_key, currentLesson?.duration_seconds])
 
   // Sync currentLesson when courseData updates (to reflect new completed status)
   useEffect(() => {

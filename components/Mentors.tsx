@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api-client';
 import { Loader2 } from 'lucide-react';
+import { originUrl } from "@/lib/dm-api"
 
 interface Mentor {
   id: number;
@@ -45,7 +46,7 @@ const Mentors: React.FC = () => {
     if (!path) return undefined;
     if (path.startsWith('http')) return path;
     // Assuming relative paths are served from the main server domain if not CDN
-    return `https://srv.digitalmadrasa.co.in${path}`;
+    return originUrl(path);
   };
 
   return (

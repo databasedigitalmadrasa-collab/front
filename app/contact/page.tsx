@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { toast } from "sonner"
 import Navbar from "@/components/Navbar"
 import Footer from "@/components/Footer"
-import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 import { Loader2, Send } from "lucide-react"
 
 export default function ContactPage() {
@@ -38,13 +38,28 @@ export default function ContactPage() {
                 status: 'open'
             }
 
-            const res = await apiClient.post("/support-requests", payload)
+            // POST /support-requests is `requireUser()` in dm-api: the handler
+            // takes `user_id` from the token rather than the body, because the
+            // whole resource was anonymous in dm-backend — which also meant
+            // `GET /support-requests` handed every ticket ever filed to anyone
+            // who asked. There is no anonymous ticket endpoint yet, so a logged
+            // out visitor is told to log in (and given the mailbox) instead of
+            // watching the form fail with an opaque error.
+            //
+            // `redirectOnUnauthorized: false` matters here: the default would
+            // bounce the visitor to /login mid-message and lose what they typed.
+            const res = await dmApi.post("/support-requests", payload, {
+                principal: "user",
+                redirectOnUnauthorized: false,
+            })
 
-            if (res.success) {
+            if (res.ok) {
                 toast.success("Message sent successfully! We will get back to you soon.")
                 setFormData({ name: "", email: "", contact: "", subject: "", message: "" })
+            } else if (res.status === 401) {
+                toast.error("Please log in to send us a message, or email hello@digitalmadrasa.in")
             } else {
-                toast.error(res.message || "Failed to send message. Please try again.")
+                toast.error(res.error || "Failed to send message. Please try again.")
             }
         } catch (error) {
             console.error("Contact form error:", error)

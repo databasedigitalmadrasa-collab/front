@@ -10,6 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Camera, Eye, EyeOff, AlertTriangle, User, Lock, Loader2, Upload } from "lucide-react"
 import { useUserAuth } from "@/hooks/use-user-auth"
 import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 
 const INDIAN_STATES = [
   "Andhra Pradesh",
@@ -151,25 +152,29 @@ export default function SettingsPage() {
       setUploading(true)
       setMessage(null)
 
-      const timestamp = Date.now()
-      const sanitizedFileName = file.name.replace(/[^a-zA-Z0-9.-]/g, "_")
-      const uploadPath = `user-profiles/user-${timestamp}-${sanitizedFileName}`
       const contentType = file.type || "image/jpeg"
 
-      const endpoint = "https://srv.digitalmadrasa.co.in/api/v1"
-      const uploadUrl = `${endpoint}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
+      // POST /r2/my-upload, not /static/objects.
+      //
+      // dm-api makes /static/objects `requireAdmin()` — dm-backend let anyone
+      // POST an arbitrary `?path=`, so a stranger could overwrite a course video
+      // or park content on the CDN domain. The learner-scoped route takes a
+      // FILENAME instead of a path and composes the key under
+      // `uploads/users/<token subject>/`, so a learner can only write inside
+      // their own prefix. It returns the public URL, which is why this no longer
+      // hand-builds a CDN path that could drift from where the file actually is.
+      const uploadResponse = await dmApi.raw(
+        `/r2/my-upload?filename=${encodeURIComponent(file.name)}`,
+        { method: "POST", headers: { "Content-Type": contentType }, body: file },
+        { principal: "user" },
+      )
 
-      const uploadResponse = await fetch(uploadUrl, {
-        method: "POST",
-        body: file,
-      })
-
-      if (!uploadResponse.ok) {
-        const errorData = await uploadResponse.json()
-        throw new Error(errorData.error || "Upload failed")
+      const uploaded = await uploadResponse.json()
+      if (!uploadResponse.ok || !uploaded.success || !uploaded.url) {
+        throw new Error(uploaded.error || "Upload failed")
       }
 
-      const imageUrl = `https://cdn.digitalmadrasa.co.in/${uploadPath}`
+      const imageUrl = uploaded.url
       setProfileData({ ...profileData, profile_pic_url: imageUrl })
       setMessage({ type: "success", text: "Profile picture uploaded successfully" })
     } catch (error) {

@@ -1,8 +1,21 @@
 // API Client for Digital Madarsa
-import { getAdminToken, clearAuth as clearAdminAuth } from "./auth"
-import { getUserToken, clearUserAuth } from "./user-auth"
-
-const API_BASE_URL = `${process.env.NEXT_PUBLIC_API_BASE_URL || "https://srv.digitalmadrasa.co.in"}/api/v1`
+//
+// This is now a thin compatibility shim over `lib/dm-api.ts`. Its public shape
+// is unchanged — `{ success, data, message, errors }`, where `data` is the whole
+// parsed response body — because ~116 call sites read `result.data.items`,
+// `result.data.user` and friends, and rewriting all of them is a separate job
+// from pointing the portal at dm-api.
+//
+// What moved underneath:
+//   • the base URL now comes from `lib/dm-api.ts`, so `NEXT_PUBLIC_API_BASE_URL`
+//     actually governs every request instead of the third or so that used to
+//     follow it;
+//   • 401 handling, token selection and JSON parsing are shared with every
+//     other caller rather than reimplemented here.
+//
+// New code should import `dmApi` from `lib/dm-api` directly: it reports the
+// HTTP status and dm-api's error code, which this shape cannot express.
+import { dmApi, type Principal } from "./dm-api"
 
 export interface ApiError {
   success: false
@@ -17,139 +30,44 @@ export interface ApiResponse<T> {
   errors?: Record<string, string[]>
 }
 
+/** Explicit token → use it; otherwise fall back to path-based selection. */
+function principalFor(token?: string): { principal: Principal; token?: string | null } {
+  return token ? { principal: "none", token } : { principal: "auto" }
+}
+
 class ApiClient {
-  private baseURL: string
-
-  constructor(baseURL: string) {
-    this.baseURL = baseURL
-  }
-
-  private getAutoToken(): string | null {
-    if (typeof window === "undefined") return null;
-
-    // Determine context based on URL
-    const pathname = window.location.pathname;
-
-    if (pathname.startsWith("/admin")) {
-      return getAdminToken();
-    } else {
-      return getUserToken();
-    }
-  }
-
-  private handleUnauthorized() {
-    if (typeof window === "undefined") return;
-
-    const pathname = window.location.pathname;
-
-    if (pathname.startsWith("/admin")) {
-      clearAdminAuth();
-      window.location.href = "/admin-login?error=session_expired";
-    } else {
-      clearUserAuth();
-      window.location.href = "/login?error=session_expired";
-    }
-  }
-
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
-    const url = `${this.baseURL}${endpoint}`
-
-    // Auto-inject token if not provided in headers
-    let headers = {
-      "Content-Type": "application/json",
-      ...options.headers,
-    } as Record<string, string>;
-
-    if (!headers["Authorization"] && !headers["authorization"]) {
-      const token = this.getAutoToken();
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-      }
-    }
-
-    const config: RequestInit = {
-      ...options,
-      headers,
-    }
-
-    try {
-      const response = await fetch(url, config)
-
-      if (response.status === 401) {
-        this.handleUnauthorized();
-        return {
-          success: false,
-          message: "Session expired. Please login again.",
-        };
-      }
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        return {
-          success: false,
-          message: data.message || "An error occurred",
-          errors: data.errors,
-        }
-      }
-
-      return {
-        success: true,
-        data,
-        message: data.message,
-      }
-    } catch (error) {
-      console.error("API Request Error:", error)
-      return {
-        success: false,
-        message: "Network error. Please try again.",
-      }
-    }
-  }
-
   async get<T>(endpoint: string, token?: string): Promise<ApiResponse<T>> {
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    return this.request<T>(endpoint, {
-      method: "GET",
-      headers,
-    })
+    return unwrap<T>(await dmApi.get<T>(endpoint, principalFor(token)))
   }
 
   async post<T>(endpoint: string, data?: unknown, token?: string): Promise<ApiResponse<T>> {
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    return this.request<T>(endpoint, {
-      method: "POST",
-      body: data ? JSON.stringify(data) : undefined,
-      headers,
-    })
+    return unwrap<T>(await dmApi.post<T>(endpoint, data, principalFor(token)))
   }
 
   async put<T>(endpoint: string, data?: unknown, token?: string): Promise<ApiResponse<T>> {
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    return this.request<T>(endpoint, {
-      method: "PUT",
-      body: data ? JSON.stringify(data) : undefined,
-      headers,
-    })
+    return unwrap<T>(await dmApi.put<T>(endpoint, data, principalFor(token)))
   }
 
   async delete<T>(endpoint: string, token?: string): Promise<ApiResponse<T>> {
-    const headers: Record<string, string> = {};
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    return this.request<T>(endpoint, {
-      method: "DELETE",
-      headers,
-    })
+    return unwrap<T>(await dmApi.delete<T>(endpoint, principalFor(token)))
   }
 }
 
-export const apiClient = new ApiClient(API_BASE_URL)
+function unwrap<T>(result: {
+  ok: boolean
+  data: T | null
+  error: string | null
+}): ApiResponse<T> {
+  if (!result.ok) {
+    return { success: false, message: result.error || "An error occurred" }
+  }
+  return {
+    success: true,
+    data: (result.data ?? undefined) as T | undefined,
+    message: (result.data as { message?: string } | null)?.message,
+  }
+}
+
+export const apiClient = new ApiClient()
 
 export default apiClient

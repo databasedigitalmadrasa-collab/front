@@ -34,8 +34,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+import { dmApi, apiUrl, getAdminToken } from "@/lib/dm-api"
 
 const PRESIGN_THRESHOLD_BYTES = 50 * 1024 * 1024
 
@@ -119,15 +118,19 @@ export default function MediaManagementPage() {
     setIsLoading(true)
     try {
       const prefixParam = currentPrefix ? `?prefix=${encodeURIComponent(currentPrefix)}` : ""
-      const response = await fetch(`${API_BASE_URL}/${selectedBucket}/objects/list${prefixParam}`)
+      // GET /:bucket/objects/list is requireAdmin() in dm-api; dmApi sends the admin bearer.
+      const response = await dmApi.get<MediaListResponse>(
+        `/${selectedBucket}/objects/list${prefixParam}`,
+        { principal: "admin" },
+      )
 
       if (!response.ok) {
         throw new Error("Failed to fetch media items")
       }
 
-      const data: MediaListResponse = await response.json()
+      const data = response.data
 
-      if (data.success) {
+      if (data?.success) {
         setPublicUrl(data.publicUrl)
 
         const folderSet = new Set<string>()
@@ -182,15 +185,19 @@ export default function MediaManagementPage() {
   const getPresignedUrl = async (bucket: string, key: string): Promise<PresignedUrlResponse | null> => {
     try {
       const r2Bucket = getR2BucketName(bucket)
-      const response = await fetch(`${API_BASE_URL}/r2/${r2Bucket}/presign?key=${encodeURIComponent(key)}`)
+      // Minting a signed write URL is requireAdmin() in dm-api — it used to be anonymous.
+      const response = await dmApi.get<PresignedUrlResponse>(
+        `/r2/${r2Bucket}/presign?key=${encodeURIComponent(key)}`,
+        { principal: "admin" },
+      )
 
       if (!response.ok) {
         throw new Error("Failed to get presigned URL")
       }
 
-      const data = await response.json()
+      const data = response.data
 
-      if (data.success) {
+      if (data?.success) {
         return data
       }
       return null
@@ -313,9 +320,26 @@ export default function MediaManagementPage() {
       }
 
       const contentType = file.type || "application/octet-stream"
-      const uploadUrl = `${API_BASE_URL}/${bucket}/objects?path=${encodeURIComponent(path)}&contentType=${encodeURIComponent(contentType)}`
+      const uploadUrl = apiUrl(
+        `/${bucket}/objects?path=${encodeURIComponent(path)}&contentType=${encodeURIComponent(contentType)}`,
+      )
 
       xhr.open("POST", uploadUrl)
+      // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+      // dm-backend, which let anyone overwrite any key). XHR is outside
+      // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+      // elsewhere in this file deliberately does NOT get this header — it
+      // would break the S3 signature.
+      {
+        const adminToken = getAdminToken()
+        if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+      }
+      // POST /:bucket/objects is requireAdmin() in dm-api. XHR is outside dmApi's
+      // JSON path, so the admin bearer has to be attached by hand.
+      const token = getAdminToken()
+      if (token) {
+        xhr.setRequestHeader("Authorization", `Bearer ${token}`)
+      }
       xhr.send(file)
     })
   }
@@ -464,12 +488,15 @@ export default function MediaManagementPage() {
       // Create an empty placeholder file to represent the folder
       const emptyBlob = new Blob([""], { type: "application/x-directory" })
 
-      const response = await fetch(
-        `${API_BASE_URL}/${selectedBucket}/objects?path=${encodeURIComponent(folderPath + ".keep")}&contentType=application/x-directory`,
+      // Blob body, so this goes through dmApi.raw rather than the JSON helpers;
+      // it still carries the admin bearer that POST /:bucket/objects requires.
+      const response = await dmApi.raw(
+        `/${selectedBucket}/objects?path=${encodeURIComponent(folderPath + ".keep")}&contentType=application/x-directory`,
         {
           method: "POST",
           body: emptyBlob,
         },
+        { principal: "admin" },
       )
 
       if (response.ok) {
@@ -566,9 +593,11 @@ export default function MediaManagementPage() {
     setIsDeleting(file.key)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/${selectedBucket}/objects?path=${encodeURIComponent(file.key)}`, {
-        method: "DELETE",
-      })
+      // DELETE /:bucket/objects is requireAdmin() in dm-api.
+      const response = await dmApi.delete(
+        `/${selectedBucket}/objects?path=${encodeURIComponent(file.key)}`,
+        { principal: "admin" },
+      )
 
       if (response.ok) {
         toast({
@@ -577,8 +606,7 @@ export default function MediaManagementPage() {
         })
         fetchMediaItems()
       } else {
-        const error = await response.json()
-        throw new Error(error.error || "Failed to delete file")
+        throw new Error(response.error || "Failed to delete file")
       }
     } catch (error) {
       console.error("Delete error:", error)

@@ -10,6 +10,7 @@ import { useState, useEffect } from "react"
 import { useToast } from "@/hooks/use-toast"
 import { useUserAuth } from "@/hooks/use-user-auth"
 import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 
 interface PlatformUpdate {
   // ...
@@ -90,10 +91,10 @@ export default function AffiliateDashboard() {
   useEffect(() => {
     const fetchUpdates = async () => {
       try {
-        const response = await fetch("https://srv.digitalmadrasa.co.in/api/v1/platform-updates")
-        const result = await response.json()
+        const res = await dmApi.get<{ success: boolean; items: PlatformUpdate[] }>("/platform-updates")
+        const result = res.data
 
-        if (result.success && result.items) {
+        if (result?.success && result.items) {
           const filteredUpdates = result.items.filter(
             (update: PlatformUpdate) =>
               update.published === 1 &&

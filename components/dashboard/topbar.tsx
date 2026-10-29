@@ -15,6 +15,7 @@ export function Topbar({ onMenuClick }: TopbarProps) {
   const getPageTitle = () => {
     const segments = pathname.split("/").filter(Boolean)
     if (segments.length === 1) return "Dashboard"
+    if (segments[segments.length - 1] === "earn") return "Earn With Referral"
     return segments[segments.length - 1]
       .split("-")
       .map((word) => word.charAt(0).toUpperCase() + word.slice(1))

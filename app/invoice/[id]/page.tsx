@@ -3,8 +3,7 @@
 import { useEffect, useState, use } from "react"
 import { useRouter } from "next/navigation"
 import { useUserAuth } from "@/hooks/use-user-auth"
-import { apiClient } from "@/lib/api-client"
-import { getAuthToken } from "@/lib/auth"
+import { dmApi } from "@/lib/dm-api"
 import { Button } from "@/components/ui/button"
 import { Loader2, Printer, ArrowLeft } from "lucide-react"
 import Image from "next/image"
@@ -105,17 +104,34 @@ export default function InvoicePage({ params }: InvoicePageProps) {
     const fetchInvoice = async () => {
       if (isAuthLoading) return
 
-      try {
-        const token = getAuthToken()
-        // If no token, maybe redirect to login? For now we assume protected route or public if allowed
-        
-        const response = await apiClient.get<{ data: Subscription }>(`/subscriptions/${id}`, token || undefined)
+      if (!currentUser?.id) {
+        setError("Please log in to view this invoice")
+        setLoading(false)
+        return
+      }
 
-        if (response.success && response.data) {
-          // The API returns { success: true, data: Subscription }
-          // response.data is the JSON body, so we need to access .data from it
-          const subscriptionData = (response.data as any).data
-          setSubscription(subscriptionData)
+      try {
+        // Reads the learner's OWN subscriptions and picks this invoice out of
+        // them, rather than addressing `GET /subscriptions/:id` directly.
+        //
+        // That route is `requireAdmin()` in dm-api — the whole
+        // `/api/v1/subscriptions` router is the billing ledger and is not
+        // scoped to a caller, so it exposes every learner's name, email,
+        // amount paid and invoice id. dm-backend had it open, which is why this
+        // page could read it at all. `GET /users/:id/subscriptions` is the
+        // learner-facing equivalent: `requireSelfOrAdmin('id')`, so a learner
+        // sees their own rows and nobody else's. Filtering client-side is safe
+        // precisely because the server already scoped the set.
+        const response = await dmApi.get<{ success: boolean; items?: Subscription[] }>(
+          `/users/${currentUser.id}/subscriptions`,
+          { principal: "user" },
+        )
+
+        const items = response.data?.items ?? []
+        const match = items.find((row) => String(row.id) === String(id))
+
+        if (match) {
+          setSubscription(match)
         } else {
           setError("Invoice not found")
         }
@@ -127,7 +143,7 @@ export default function InvoicePage({ params }: InvoicePageProps) {
     }
 
     fetchInvoice()
-  }, [id, isAuthLoading])
+  }, [id, isAuthLoading, currentUser?.id])
 
   if (loading || isAuthLoading) {
     return (

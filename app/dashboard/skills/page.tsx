@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react"
 import { Lock, Play, Clock, BookOpen } from "lucide-react"
 import Link from "next/link"
+import { dmApi } from "@/lib/dm-api"
 
 interface Course {
   id: number
@@ -33,14 +34,16 @@ export default function MySkillsPage() {
     const fetchCourses = async () => {
       try {
         setLoading(true)
-        const response = await fetch("https://srv.digitalmadrasa.co.in/api/v1/courses")
+        // GET /courses is optionalAuth() in dm-api: anonymous still works, but the
+        // learner token makes it return the caller's access flags.
+        const result = await dmApi.get<{ success: boolean; items: Course[] }>("/courses")
 
-        if (!response.ok) {
-          throw new Error("Failed to fetch courses")
+        if (!result.ok) {
+          throw new Error(result.error || "Failed to fetch courses")
         }
 
-        const data = await response.json()
-        if (data.success && data.items) {
+        const data = result.data
+        if (data?.success && data.items) {
           setCourses(data.items)
         }
       } catch (err) {

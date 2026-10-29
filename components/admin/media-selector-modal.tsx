@@ -13,8 +13,29 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Folder, ChevronRight, Home, Video, ImageIcon, FileText, FileArchive, Loader2, Search } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 interface MediaItem {
   key: string
@@ -59,7 +80,7 @@ export function MediaSelectorModal({
     setIsLoading(true)
     try {
       const prefixParam = currentPrefix ? `?prefix=${encodeURIComponent(currentPrefix)}` : ""
-      const response = await fetch(`${API_BASE_URL}/${bucket}/objects/list${prefixParam}`)
+      const response = await adminFetch(`${API_BASE_URL}/${bucket}/objects/list${prefixParam}`)
 
       if (!response.ok) {
         throw new Error("Failed to fetch media items")

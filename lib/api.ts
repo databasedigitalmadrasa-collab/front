@@ -1,4 +1,7 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "https://srv.digitalmadrasa.co.in"
+// Base URL resolution lives in lib/dm-api.ts so the whole portal moves with one
+// environment variable. `API_ORIGIN` is the backend origin without /api/v1,
+// matching what this file's template literals already assume.
+import { API_ORIGIN as API_BASE_URL } from "./dm-api"
 
 export interface Course {
   id: number

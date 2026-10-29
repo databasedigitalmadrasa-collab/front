@@ -12,8 +12,12 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
+import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "https://srv.digitalmadrasa.co.in/api/v1"
+// Was `process.env.NEXT_PUBLIC_API_URL` — a variable defined in no env
+// file, so this always silently fell through to the hardcoded host and
+// would not have followed a backend cutover.
+const API_BASE_URL = DM_API_BASE_URL
 
 export default function CertificatePage() {
     const params = useParams()

@@ -27,6 +27,25 @@ import {
 import { toast } from "sonner"
 import { Plus, Edit2, Trash2, CheckCircle, XCircle, ImageIcon, FileText, Video, ExternalLink, Loader2, UploadCloud } from "lucide-react"
 import Image from "next/image"
+import { API_ORIGIN, getAdminToken } from "@/lib/dm-api"
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 interface PromotionalAsset {
     id: number;
@@ -64,7 +83,7 @@ export default function PromotionalAssetsAdminPage() {
             else setIsUploading(true);
 
             const contentType = file.type || "application/octet-stream";
-            const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "https://srv.digitalmadrasa.co.in";
+            const baseUrl = API_ORIGIN;
             // Create a unique path
             const timestamp = Date.now();
             const cleanName = file.name.replace(/\s+/g, '-').replace(/[^a-zA-Z0-9.-]/g, '');
@@ -72,7 +91,7 @@ export default function PromotionalAssetsAdminPage() {
 
             const uploadUrl = `${baseUrl}/api/v1/static/objects?path=${encodeURIComponent(path)}&contentType=${encodeURIComponent(contentType)}`;
 
-            const response = await fetch(uploadUrl, {
+            const response = await adminFetch(uploadUrl, {
                 method: "POST",
                 body: file,
             });

@@ -23,6 +23,7 @@ import {
   MessageSquare,
   ImageIcon,
   Ticket,
+  Radio,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/hooks/use-auth"
@@ -50,6 +51,7 @@ export function AdminSidebar({ isOpen = true, onClose }: AdminSidebarProps) {
 
     // Business Management
     { name: "Business", icon: null, href: "#" },
+    { name: "Live Classes", icon: Radio, href: "/admin/live-classes" },
     { name: "Manage Plans", icon: ClipboardList, href: "/admin/plans" },
     { name: "Manage Subscriptions", icon: CreditCard, href: "/admin/subscriptions" },
     { name: "Manage Coupons", icon: Ticket, href: "/admin/coupons" },

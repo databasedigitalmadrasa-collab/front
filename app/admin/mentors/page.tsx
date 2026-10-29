@@ -46,6 +46,7 @@ import {
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api-client"
 import { getAuthToken } from "@/lib/auth"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
 
 interface Mentor {
   id: number
@@ -58,7 +59,9 @@ interface Mentor {
 }
 
 const ITEMS_PER_PAGE = 10
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
 
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString("en-US", {
@@ -344,6 +347,15 @@ export default function MentorsAdminPage() {
 
         const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
         xhr.open("POST", uploadUrl)
+        // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+        // dm-backend, which let anyone overwrite any key). XHR is outside
+        // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+        // elsewhere in this file deliberately does NOT get this header — it
+        // would break the S3 signature.
+        {
+          const adminToken = getAdminToken()
+          if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+        }
         xhr.send(file)
       })
 

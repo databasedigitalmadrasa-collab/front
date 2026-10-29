@@ -34,6 +34,7 @@ import {
   Filter,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
+import { dmApi, getAdminToken } from "@/lib/dm-api"
 
 interface PayoutRequest {
   id: number
@@ -54,7 +55,27 @@ interface PayoutRequest {
   user_phone_number?: string
 }
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 export default function PayoutRequestsPage() {
   const { toast } = useToast()
@@ -88,7 +109,7 @@ export default function PayoutRequestsPage() {
     const fetchBankDetails = async () => {
       if (isMarkPaidDialogOpen && selectedPayout?.user_id) {
         try {
-          const res = await fetch(`${API_BASE_URL}/affiliate-bank/user/${selectedPayout.user_id}`);
+          const res = await adminFetch(`${API_BASE_URL}/affiliate-bank/user/${selectedPayout.user_id}`);
           const data = await res.json();
           if (data.success && data.data) {
             setUserBankDetails(data.data.data || data.data); // Handle potential wrapping which sometimes happens
@@ -119,7 +140,7 @@ export default function PayoutRequestsPage() {
         params.append("payment_method_of_settlement", paymentMethodFilter)
       }
 
-      const response = await fetch(`${API_BASE_URL}/payout-requests?${params.toString()}`)
+      const response = await adminFetch(`${API_BASE_URL}/payout-requests?${params.toString()}`)
       const data = await response.json()
 
       console.log("Payout requests fetched:", data)
@@ -169,20 +190,12 @@ export default function PayoutRequestsPage() {
   const uploadFile = async (file: File, path: string): Promise<string | null> => {
     try {
       const contentType = file.type || "application/octet-stream"
-      const baseUrl = API_BASE_URL.replace("/api/v1", "") // API_BASE_URL includes /api/v1, but upload endpoint is ...wait. 
-      // API_BASE_URL is "https://srv.digitalmadrasa.co.in/api/v1"
-      // Endpoint is "/api/v1/static/objects"
-      // So `${API_BASE_URL}/static/objects` works.
-
       const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(path)}&contentType=${encodeURIComponent(contentType)}`
 
-      const response = await fetch(uploadUrl, {
+      const response = await adminFetch(uploadUrl, {
         method: "POST",
-        headers: {
-          // If auth is required for static upload, add headers?
-          // Usually static upload endpoint in dm-backend seems open or token based?
-          // Wallet page didn't add headers in fetch call above (viewed file).
-        },
+        // adminFetch supplies the bearer: POST /static/objects is requireAdmin()
+        // in dm-api, where dm-backend left it open.
         body: file,
       })
 
@@ -220,7 +233,7 @@ export default function PayoutRequestsPage() {
         }
       }
 
-      const response = await fetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
+      const response = await adminFetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -273,7 +286,7 @@ export default function PayoutRequestsPage() {
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
+      const response = await adminFetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -342,7 +355,7 @@ export default function PayoutRequestsPage() {
         }
       }
 
-      const response = await fetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
+      const response = await adminFetch(`${API_BASE_URL}/payout-requests/${payout.id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",

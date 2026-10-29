@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { cookies } from "next/headers"
+import { apiUrl } from "@/lib/dm-api"
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,7 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized - No token found" }, { status: 401 })
     }
 
-    const videoUrl = `https://srv.digitalmadrasa.co.in/api/v1/video?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}`
+    const videoUrl = apiUrl(`/video?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}&token=${encodeURIComponent(token)}`)
 
     const videoResponse = await fetch(videoUrl, {
       method: "GET",

@@ -11,9 +11,11 @@ import { ChevronLeft, Upload, Loader2 } from "lucide-react"
 import Link from "next/link"
 import { apiClient } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
-import { getAdminToken } from "@/lib/auth"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
 
 // Helper function to generate slug from title
 const generateSlug = (title: string) => {
@@ -127,6 +129,15 @@ export default function NewCoursePage() {
 
         const uploadUrl = `${API_BASE_URL}/static/objects?path=${encodeURIComponent(uploadPath)}&contentType=${encodeURIComponent(contentType)}`
         xhr.open("POST", uploadUrl)
+        // POST /static/objects is `requireAdmin()` in dm-api (it was anonymous in
+        // dm-backend, which let anyone overwrite any key). XHR is outside
+        // dmApi's reach, so the bearer is set by hand here. A presigned PUT
+        // elsewhere in this file deliberately does NOT get this header — it
+        // would break the S3 signature.
+        {
+          const adminToken = getAdminToken()
+          if (adminToken) xhr.setRequestHeader("Authorization", `Bearer ${adminToken}`)
+        }
         xhr.send(file)
       })
 

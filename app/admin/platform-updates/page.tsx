@@ -19,6 +19,25 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
+import { API_BASE_URL as DM_API_BASE_URL, getAdminToken } from "@/lib/dm-api"
+
+/**
+ * Admin fetch.
+ *
+ * Every dm-api route this screen touches is `requireAdmin()`. dm-backend
+ * declared them `auth: false`, so these calls carried no Authorization header
+ * and worked anyway; against dm-api they answer 401. The header is only set
+ * when the caller has not already supplied one.
+ */
+const adminFetch = (input: string, init: RequestInit = {}) => {
+  const headers = new Headers(init.headers)
+  if (!headers.has("Authorization")) {
+    const token = getAdminToken()
+    if (token) headers.set("Authorization", `Bearer ${token}`)
+  }
+  return fetch(input, { ...init, headers })
+}
+
 
 interface PlatformUpdate {
   id: number
@@ -53,12 +72,14 @@ export default function PlatformUpdatesPage() {
   const [saving, setSaving] = useState(false)
   const { toast } = useToast()
 
-  const API_BASE = "https://srv.digitalmadrasa.co.in/api/v1"
+  // Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+  // different backend is one environment variable rather than an edit per file.
+  const API_BASE = DM_API_BASE_URL
 
   const fetchUpdates = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${API_BASE}/platform-updates`)
+      const response = await adminFetch(`${API_BASE}/platform-updates`)
       const data = await response.json()
 
       if (data.success && data.items) {
@@ -120,7 +141,7 @@ export default function PlatformUpdatesPage() {
 
       const method = editingUpdate ? "PUT" : "POST"
 
-      const response = await fetch(url, {
+      const response = await adminFetch(url, {
         method,
         headers: {
           "Content-Type": "application/json",
@@ -161,7 +182,7 @@ export default function PlatformUpdatesPage() {
 
     setDeleteLoading(id)
     try {
-      const response = await fetch(`${API_BASE}/platform-updates/${id}`, {
+      const response = await adminFetch(`${API_BASE}/platform-updates/${id}`, {
         method: "DELETE",
       })
 

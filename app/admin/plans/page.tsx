@@ -67,6 +67,8 @@ interface Plan {
   end_date?: string
   is_featured?: boolean
   badge_text?: string
+  /** Referral commission in paise; null means the plan pays the flat rate. */
+  commission_cents?: number | null
   created_at: string
   updated_at: string
 }
@@ -104,7 +106,9 @@ export default function ManagePlansPage() {
     end_date: "",
     is_featured: false,
     badge_text: "",
+    commission_rupees: "",
   })
+  const [commissionError, setCommissionError] = useState<string | null>(null)
 
   useEffect(() => {
     fetchPlans()
@@ -129,6 +133,22 @@ export default function ManagePlansPage() {
     setIsLoading(false)
   }
 
+  /**
+   * The commission field is in rupees; dm-api stores paise. Empty means "pay
+   * the flat rate", sent as null so an edit can also clear an override.
+   */
+  const commissionCentsFromForm = (): number | null | undefined => {
+    const raw = formData.commission_rupees.trim()
+    if (raw === "") return null
+    const rupees = Number(raw)
+    if (!Number.isFinite(rupees) || rupees < 0) {
+      setCommissionError("Enter an amount of ₹0 or more, or leave it empty for the flat rate.")
+      return undefined
+    }
+    setCommissionError(null)
+    return Math.round(rupees * 100)
+  }
+
   const handleCreatePlan = async () => {
     if (!formData.title || !formData.monthly_amount || !formData.yearly_amount) {
       toast({
@@ -138,6 +158,9 @@ export default function ManagePlansPage() {
       })
       return
     }
+
+    const commissionCents = commissionCentsFromForm()
+    if (commissionCents === undefined) return
 
     setIsSubmitting(true)
     const token = getAuthToken()
@@ -155,6 +178,7 @@ export default function ManagePlansPage() {
       gst_tax: Number.parseFloat(formData.gst_tax),
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
       badge_text: formData.badge_text || undefined,
+      commission_cents: commissionCents,
     }
 
     console.log("Creating plan with payload:", payload)
@@ -191,6 +215,9 @@ export default function ManagePlansPage() {
       return
     }
 
+    const commissionCents = commissionCentsFromForm()
+    if (commissionCents === undefined) return
+
     setIsSubmitting(true)
     const token = getAuthToken()
 
@@ -207,6 +234,7 @@ export default function ManagePlansPage() {
       gst_tax: Number.parseFloat(formData.gst_tax),
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
       badge_text: formData.badge_text || undefined,
+      commission_cents: commissionCents,
     }
 
     console.log("Updating plan with payload:", payload)
@@ -280,7 +308,9 @@ export default function ManagePlansPage() {
       end_date: "",
       is_featured: false,
       badge_text: "",
+      commission_rupees: "",
     })
+    setCommissionError(null)
   }
 
   const handleToggleFeatured = async (plan: Plan, checked: boolean) => {
@@ -328,7 +358,9 @@ export default function ManagePlansPage() {
       end_date: plan.end_date || "",
       is_featured: !!plan.is_featured,
       badge_text: plan.badge_text || "",
+      commission_rupees: plan.commission_cents != null ? String(plan.commission_cents / 100) : "",
     })
+    setCommissionError(null)
     setIsEditDialogOpen(true)
   }
 
@@ -557,6 +589,10 @@ export default function ManagePlansPage() {
                           <span className="font-medium">Yearly:</span>{" "}
                           {formatCurrency(plan.yearly_amount, plan.currency)}
                         </div>
+                        <div className="text-xs text-gray-500">
+                          Commission:{" "}
+                          {plan.commission_cents != null ? formatCurrency(plan.commission_cents / 100, "INR") : "flat rate"}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -768,6 +804,27 @@ export default function ManagePlansPage() {
                   placeholder="18"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="commission_rupees">Referral Commission (₹, optional)</Label>
+              <Input
+                id="commission_rupees"
+                type="number"
+                min={0}
+                step={1}
+                value={formData.commission_rupees}
+                onChange={(e) => {
+                  setFormData({ ...formData, commission_rupees: e.target.value })
+                  setCommissionError(null)
+                }}
+                placeholder="Flat rate"
+                aria-invalid={!!commissionError}
+              />
+              <p className={commissionError ? "text-xs text-red-600" : "text-xs text-gray-500"}>
+                {commissionError ??
+                  "Paid to the referral partner for each enrollment on this plan. Leave empty to use the flat commission from Settings."}
+              </p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

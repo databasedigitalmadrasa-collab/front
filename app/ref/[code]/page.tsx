@@ -3,8 +3,11 @@
 import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { AlertCircle } from "lucide-react"
+import { API_BASE_URL as DM_API_BASE_URL } from "@/lib/dm-api"
 
-const API_BASE_URL = "https://srv.digitalmadrasa.co.in/api/v1"
+// Base URL resolution lives in lib/dm-api.ts, so pointing the portal at a
+// different backend is one environment variable rather than an edit per file.
+const API_BASE_URL = DM_API_BASE_URL
 
 export default function ReferralRedirect() {
   const params = useParams()
@@ -13,9 +16,14 @@ export default function ReferralRedirect() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    // `?plan=` picks which plan's checkout the visitor lands on (the per-plan
+    // links on Marketing Tools); anything but a plain id falls back to plan 1.
+    const plan = new URLSearchParams(window.location.search).get("plan")
+    const enrollPath = `/enroll/${plan && /^\d+$/.test(plan) ? plan : "1"}`
+
     const verifyRecordAndRedirect = async () => {
       if (!code) {
-        router.push("/enroll/1")
+        router.push(enrollPath)
         return
       }
 
@@ -41,7 +49,7 @@ export default function ReferralRedirect() {
           setError("Invalid referral code")
           // Redirect without the ref parameter after 2 seconds
           setTimeout(() => {
-            router.push("/enroll/1")
+            router.push(enrollPath)
           }, 2000)
           return
         }
@@ -61,13 +69,13 @@ export default function ReferralRedirect() {
         console.log("Referral click recorded, redirecting with ref parameter...")
 
         // Redirect to enrollment page with referral code
-        router.push(`/enroll/1?ref=${encodeURIComponent(code)}`)
+        router.push(`${enrollPath}?ref=${encodeURIComponent(code)}`)
       } catch (error) {
         console.error("Error processing referral:", error)
         setError("Error processing referral link")
         // Redirect without ref parameter after 2 seconds
         setTimeout(() => {
-          router.push("/enroll/1")
+          router.push(enrollPath)
         }, 2000)
       }
     }
