@@ -43,6 +43,20 @@ interface LiveClass {
   plan_id: number | null
 }
 
+/**
+ * One file of the recording. A class is usually one, but a teacher who
+ * reloaded the studio mid-lesson, or an OBS encoder that reconnected, leaves
+ * several — played here in order as Part 1, Part 2, …
+ */
+interface RecordingSegment {
+  id: number
+  url: string
+  mime_type: string
+  duration_seconds: number | null
+  size_bytes: number | null
+  started_at: string
+}
+
 interface RecordingResponse {
   success: boolean
   live_class: LiveClass
@@ -50,6 +64,7 @@ interface RecordingResponse {
   recording_status: string
   recording_duration: number | null
   recording_size_bytes: number | null
+  segments?: RecordingSegment[]
 }
 
 function formatDate(iso: string): string {
@@ -87,6 +102,8 @@ export default function StudentRecordingPlayerPage() {
   const playerContainerRef = useRef<HTMLDivElement>(null)
 
   const [lc, setLc] = useState<LiveClass | null>(null)
+  const [segments, setSegments] = useState<RecordingSegment[]>([])
+  const [part, setPart] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -109,21 +126,28 @@ export default function StudentRecordingPlayerPage() {
       return
     }
     setLc(res.data.live_class)
+    setSegments(res.data.segments ?? [])
   }
 
   useEffect(() => {
     fetchRecording()
   }, [id])
 
-  // Auto poll if recording is still processing
+  // Auto poll while the recording is still being saved
+  const stillSaving =
+    !!lc &&
+    lc.status === "ended" &&
+    lc.recording_status !== "ready" &&
+    lc.recording_status !== "none" &&
+    lc.recording_status !== "failed"
   useEffect(() => {
-    if (lc?.recording_status === "processing") {
+    if (stillSaving) {
       const timer = setInterval(() => {
         fetchRecording()
       }, 10000)
       return () => clearInterval(timer)
     }
-  }, [lc?.recording_status])
+  }, [stillSaving])
 
   // Video Events
   const handlePlayPause = () => {
@@ -143,8 +167,36 @@ export default function StudentRecordingPlayerPage() {
   }
 
   const handleLoadedMetadata = () => {
-    if (!videoRef.current) return
-    setDuration(videoRef.current.duration)
+    const video = videoRef.current
+    if (!video) return
+    if (Number.isFinite(video.duration)) {
+      setDuration(video.duration)
+      return
+    }
+    // A file written by the browser's recorder (WebM especially) can arrive
+    // without a duration in its header, which leaves the seek bar dead. Show
+    // the server's figure, and seek to the far end once so the browser works
+    // the real one out, then come back.
+    setDuration(segments[part]?.duration_seconds ?? lc?.recording_duration ?? 0)
+    const settle = () => {
+      video.removeEventListener("timeupdate", settle)
+      video.currentTime = 0
+      if (Number.isFinite(video.duration)) setDuration(video.duration)
+    }
+    video.addEventListener("timeupdate", settle)
+    video.currentTime = Number.MAX_SAFE_INTEGER
+  }
+
+  const selectPart = (index: number, autoplay: boolean) => {
+    setPart(index)
+    setCurrentTime(0)
+    setDuration(segments[index]?.duration_seconds ?? 0)
+    setIsPlaying(autoplay)
+  }
+
+  const handleEnded = () => {
+    if (part + 1 < segments.length) selectPart(part + 1, true)
+    else setIsPlaying(false)
   }
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -238,6 +290,11 @@ export default function StudentRecordingPlayerPage() {
     lc.recording_status === "processing" ||
     (lc.status === "ended" && !isRecordingReady && lc.recording_status !== "none" && lc.recording_status !== "failed")
 
+  const current = segments[part] ?? null
+  const videoUrl = current?.url ?? lc.recording_url
+  const downloadExt = current?.mime_type === "video/webm" ? "webm" : "mp4"
+  const downloadSize = current ? current.size_bytes : lc.recording_size_bytes
+
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6 font-sans">
       {/* ── Top Header Navigation ────────────────────────────────────────────── */}
@@ -277,12 +334,18 @@ export default function StudentRecordingPlayerPage() {
             className="relative aspect-video w-full bg-black flex items-center justify-center group select-none"
           >
             <video
+              key={videoUrl ?? ""}
               ref={videoRef}
-              src={lc.recording_url!}
+              src={videoUrl!}
               poster={lc.thumbnail_url || undefined}
+              autoPlay={isPlaying}
               onTimeUpdate={handleTimeUpdate}
               onLoadedMetadata={handleLoadedMetadata}
-              onEnded={() => setIsPlaying(false)}
+              onDurationChange={() => {
+                const d = videoRef.current?.duration
+                if (d && Number.isFinite(d)) setDuration(d)
+              }}
+              onEnded={handleEnded}
               onClick={handlePlayPause}
               className="w-full h-full object-contain cursor-pointer"
               playsInline
@@ -385,9 +448,9 @@ export default function StudentRecordingPlayerPage() {
         ) : isProcessing ? (
           <div className="relative aspect-video w-full flex flex-col items-center justify-center p-8 text-center bg-slate-900 space-y-3">
             <Loader2 className="w-12 h-12 text-blue-500 animate-spin mb-2" />
-            <h3 className="text-base font-bold text-white mb-1">Archiving Recording to Cloudflare R2</h3>
+            <h3 className="text-base font-bold text-white mb-1">Preparing the Recording</h3>
             <p className="text-xs text-slate-400 max-w-md">
-              The live stream has ended. The MP4 recording is being downloaded and stored permanently in Cloudflare R2 media storage.
+              The class has ended and its recording is being saved. This usually takes a minute or two — this page updates by itself.
             </p>
             <button
               type="button"
@@ -403,29 +466,54 @@ export default function StudentRecordingPlayerPage() {
             <Film className="w-12 h-12 text-slate-600 mb-3" />
             <h3 className="text-base font-bold text-white mb-1">Recording Not Available</h3>
             <p className="text-xs text-slate-400 max-w-md">
-              No recording was archived to R2 for this live session.
+              No recording was saved for this live session.
             </p>
           </div>
         )}
       </div>
+
+      {isRecordingReady && segments.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-semibold text-slate-500">This class was recorded in {segments.length} parts:</span>
+          {segments.map((segment, index) => (
+            <button
+              key={segment.id}
+              type="button"
+              onClick={() => selectPart(index, true)}
+              className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition-all ${
+                index === part
+                  ? "border-blue-600 bg-blue-600 text-white"
+                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Part {index + 1}
+              {segment.duration_seconds ? (
+                <span className="ml-1.5 font-mono text-[10px] opacity-75">{formatSeconds(segment.duration_seconds)}</span>
+              ) : null}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* ── Metadata & Details Panel ────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h2 className="text-base font-bold text-slate-900">About this Class</h2>
-            {isRecordingReady && lc.recording_url && (
+            {isRecordingReady && videoUrl && (
               <a
-                href={lc.recording_url}
-                download={`class-${lc.id}-recording.mp4`}
+                href={videoUrl}
+                download={`class-${lc.id}-recording${segments.length > 1 ? `-part-${part + 1}` : ""}.${downloadExt}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border border-slate-200"
               >
                 <Download className="w-3.5 h-3.5 text-blue-600" />
-                <span>Download MP4</span>
-                {lc.recording_size_bytes ? (
-                  <span className="text-slate-400 text-[10px]">({formatBytes(lc.recording_size_bytes)})</span>
+                <span>
+                  Download {segments.length > 1 ? `Part ${part + 1}` : downloadExt.toUpperCase()}
+                </span>
+                {downloadSize ? (
+                  <span className="text-slate-400 text-[10px]">({formatBytes(downloadSize)})</span>
                 ) : null}
               </a>
             )}

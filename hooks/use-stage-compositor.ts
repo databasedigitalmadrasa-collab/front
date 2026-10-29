@@ -224,6 +224,16 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
       const ctx = new Ctor()
       audioCtxRef.current = ctx
       programDestRef.current = ctx.createMediaStreamDestination()
+
+      // A bed of digital silence under the mix. With nothing connected — no
+      // microphone allowed yet, no co-hosts — the programme's audio track
+      // produces no samples at all, and Chrome's MediaRecorder holds the video
+      // back waiting for audio to interleave with: the class recording came
+      // out almost empty. A zero-level source keeps samples flowing.
+      const silence = ctx.createConstantSource()
+      silence.offset.value = 0
+      silence.connect(programDestRef.current)
+      silence.start()
       return ctx
     } catch {
       setError("This browser could not open an audio mixer.")

@@ -17,6 +17,9 @@
  *   useStageCompositor  — all of the above drawn into one canvas, under the
  *                         current layout and overlays, with the audio mixed.
  *   useWhipBroadcast    — that canvas, pushed to Cloudflare.
+ *   useStudioRecorder   — that canvas, recorded and uploaded to R2. Stream
+ *                         does not record a WHIP broadcast, so this is the
+ *                         class recording.
  *
  * The room (`useLiveRoom`) carries chat, Q&A, presence, overlays and the stage
  * itself over the same socket the students are on, so a co-host's studio and
@@ -39,6 +42,7 @@ import {
   Bell,
   Check,
   ChevronDown,
+  CircleDot,
   Copy,
   ExternalLink,
   Eye,
@@ -68,6 +72,7 @@ import { useMediaSources } from "@/hooks/use-media-sources"
 import { useStageRtc } from "@/hooks/use-stage-rtc"
 import { useStageCompositor, type CompositorSource } from "@/hooks/use-stage-compositor"
 import { useWhipBroadcast, type StreamHealth } from "@/hooks/use-whip-broadcast"
+import { useStudioRecorder, type StudioRecorder } from "@/hooks/use-studio-recorder"
 import { formatDuration, isStaffRole, roomApi, secondsSince, type StageLayout } from "@/lib/live-room"
 import { ChatPanel } from "@/components/live/chat-panel"
 import { QaPanel } from "@/components/live/qa-panel"
@@ -256,6 +261,14 @@ export default function HostStudioPage() {
   // happened to renegotiate.
   returnTracksRef.current = compositor.getReturnTracks
 
+  // `goLive` starts the mixer and then publishes in the same click, so the
+  // programme stream it needs only exists in a render that happens after the
+  // click handler was created. Reading `compositor.programStream` there got
+  // the stale null, and the first Go live of every class failed to broadcast
+  // until the host pressed Retry.
+  const programStreamRef = useRef<MediaStream | null>(null)
+  programStreamRef.current = compositor.programStream
+
   /* ── load ─────────────────────────────────────────────────────────────── */
 
   const load = useCallback(async () => {
@@ -291,6 +304,30 @@ export default function HostStudioPage() {
     if (whip.publishing) void whip.replaceTracks(compositor.programStream)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [compositor.programStream])
+
+  /* ── recording ────────────────────────────────────────────────────────── */
+
+  const recorder = useStudioRecorder(cls?.id ?? null, cls?.broadcast_height ?? 720)
+
+  // Recording follows the browser broadcast. A class sent from OBS is recorded
+  // by Stream, and recording this studio as well would capture a canvas nobody
+  // was watching. Sticky for the session, so a WHIP reconnect does not split
+  // the recording into a new file every time the network blinks.
+  const [studioBroadcast, setStudioBroadcast] = useState(false)
+  useEffect(() => {
+    if (whip.publishing) setStudioBroadcast(true)
+  }, [whip.publishing])
+  useEffect(() => {
+    if (!isLive) setStudioBroadcast(false)
+  }, [isLive])
+
+  const shouldRecord = isLive && studioBroadcast && !!cls?.recording_enabled && !!compositor.programStream
+  const recordStream = recorder.record
+  const stopRecording = recorder.stop
+  useEffect(() => {
+    if (shouldRecord && compositor.programStream) recordStream(compositor.programStream)
+    else void stopRecording()
+  }, [shouldRecord, compositor.programStream, recordStream, stopRecording])
 
   /* ── session clock ────────────────────────────────────────────────────── */
 
@@ -348,7 +385,7 @@ export default function HostStudioPage() {
     setCls((prev) => (prev ? { ...prev, status: "live", started_at: res.data!.started_at } : prev))
     await room.refresh()
 
-    const stream = compositor.programStream
+    const stream = programStreamRef.current
     const published = stream
       ? await whip.publish(res.data.whip_url ?? cls.cf_whip_url ?? "", stream)
       : false
@@ -369,6 +406,9 @@ export default function HostStudioPage() {
     // Stop sending before flipping the status, so the last thing students see
     // is the stream ending rather than a frozen frame on an "ended" page.
     await whip.stop()
+    // Closes the recording file now; its last parts keep uploading after the
+    // class is marked ended, and the studio shows that until they are done.
+    void recorder.stop()
     const res = await dmApi.post(`/live-classes/${id}/end`)
     setEnding(false)
 
@@ -564,12 +604,27 @@ export default function HostStudioPage() {
         </div>
       </header>
 
-      {(actionError || media.error || whip.error || compositor.error) && (
+      {(recorder.state === "saving" || (recorder.state === "saved" && status === "ended")) && (
+        <div className="flex items-start gap-2.5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+          {recorder.state === "saving" ? (
+            <Loader2 className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+          ) : (
+            <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+          )}
+          <p className="text-xs font-medium leading-relaxed text-blue-900">
+            {recorder.state === "saving"
+              ? `Saving the recording — ${uploadPercent(recorder)}% uploaded. Keep this tab open until it finishes.`
+              : "Recording saved. It will appear on the class page and for students in a minute."}
+          </p>
+        </div>
+      )}
+
+      {(actionError || media.error || whip.error || compositor.error || recorder.error) && (
         <div className="flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-600" />
           <div className="min-w-0 flex-1">
             <p className="text-xs font-medium leading-relaxed text-rose-800">
-              {actionError || media.error || whip.error || compositor.error}
+              {actionError || media.error || whip.error || compositor.error || recorder.error}
             </p>
             {isLive && !whip.publishing && (
               <button
@@ -638,6 +693,7 @@ export default function HostStudioPage() {
                 bitrateKbps={whip.stats.bitrateKbps}
                 publishing={whip.publishing}
               />
+              <RecordingBadge recorder={recorder} />
             </div>
 
             <div className="ml-auto">
@@ -794,7 +850,7 @@ export default function HostStudioPage() {
               />
               <Toggle
                 label="Recording"
-                hint="Save this session to Cloudflare Stream"
+                hint="Save the class so students can rewatch it"
                 checked={!!cls.recording_enabled}
                 onChange={(v) => toggleSetting("recording_enabled", v)}
               />
@@ -1244,6 +1300,66 @@ function HealthBadge({
         <span className="hidden font-mono text-[10px] text-slate-400 sm:inline">
           {formatBitrate(bitrateKbps)}
         </span>
+      )}
+    </span>
+  )
+}
+
+/** Bytes the browser has recorded but not yet got to the server. */
+function backlogBytes(r: StudioRecorder): number {
+  return Math.max(0, r.recordedBytes - r.uploadedBytes)
+}
+
+function uploadPercent(r: StudioRecorder): number {
+  return r.recordedBytes ? Math.min(100, Math.floor((r.uploadedBytes / r.recordedBytes) * 100)) : 100
+}
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(bytes < 10 * 1024 * 1024 ? 1 : 0)} MB`
+}
+
+/**
+ * What the recorder is doing, next to stream health. "Behind" appears when
+ * the uplink cannot keep up with broadcast and upload together — the bytes
+ * are safe in the tab, but closing it would lose them.
+ */
+function RecordingBadge({ recorder }: { recorder: StudioRecorder }) {
+  if (recorder.state === "idle") return null
+
+  const behind = backlogBytes(recorder)
+  const label =
+    recorder.state === "recording"
+      ? `REC · ${formatMegabytes(recorder.recordedBytes)}`
+      : recorder.state === "saving"
+        ? `Saving ${uploadPercent(recorder)}%`
+        : recorder.state === "saved"
+          ? "Recording saved"
+          : recorder.state === "unsupported"
+            ? "Can't record here"
+            : "Recording failed"
+
+  const tone =
+    recorder.state === "recording"
+      ? "border-rose-500/40 text-rose-200"
+      : recorder.state === "saved"
+        ? "border-emerald-500/40 text-emerald-200"
+        : recorder.state === "saving"
+          ? "border-blue-500/40 text-blue-200"
+          : "border-amber-500/40 text-amber-200"
+
+  return (
+    <span
+      title={recorder.error ?? undefined}
+      className={`inline-flex items-center gap-1.5 rounded-xl border bg-slate-800 px-2.5 py-2 text-[11px] font-semibold ${tone}`}
+    >
+      {recorder.state === "saving" ? (
+        <Loader2 className="h-3 w-3 animate-spin" />
+      ) : (
+        <CircleDot className={`h-3 w-3 ${recorder.state === "recording" ? "animate-pulse text-rose-400" : ""}`} />
+      )}
+      {label}
+      {recorder.state === "recording" && behind > 15 * 1024 * 1024 && (
+        <span className="font-mono text-[10px] text-amber-300">{formatMegabytes(behind)} behind</span>
       )}
     </span>
   )

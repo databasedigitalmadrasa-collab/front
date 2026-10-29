@@ -55,6 +55,7 @@ interface LiveClass {
   recording_status?: string
   recording_duration?: number | null
   recording_size_bytes?: number | null
+  recording_error?: string | null
   thumbnail_url?: string | null
   overlay_text: string | null
   overlay_logo_url: string | null
@@ -158,6 +159,11 @@ export default function AdminLiveClassDashboardPage() {
 
   const origin = typeof window !== "undefined" ? window.location.origin : "https://digitalmadarsa.in"
 
+  // The recording is collected in the background after the class ends; keep
+  // the card current until it settles rather than asking the admin to reload.
+  const recordingPending =
+    lc?.status === "ended" && (lc.recording_status === "processing" || lc.recording_status === "recording")
+
   const fetchAll = useCallback(async () => {
     const [classRes, hostsRes, participantsRes, usersRes] = await Promise.all([
       dmApi.get<{ success: boolean; live_class: LiveClass }>(`/live-classes/${id}`),
@@ -171,6 +177,12 @@ export default function AdminLiveClassDashboardPage() {
     if (participantsRes.ok && participantsRes.data) setParticipants(participantsRes.data.items ?? [])
     if (usersRes.ok && usersRes.data) setUsers(usersRes.data.items ?? [])
   }, [id])
+
+  useEffect(() => {
+    if (!recordingPending) return
+    const timer = setInterval(() => void fetchAll(), 10_000)
+    return () => clearInterval(timer)
+  }, [recordingPending, fetchAll])
 
   useEffect(() => {
     fetchAll()
@@ -428,7 +440,7 @@ export default function AdminLiveClassDashboardPage() {
         </div>
 
         {/* Card: Recording & R2 Storage */}
-        {!!lc.recording_enabled && (
+        {(!!lc.recording_enabled || (!!lc.recording_status && lc.recording_status !== "none")) && (
           <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-slate-900 uppercase tracking-wider flex items-center gap-2">
@@ -441,6 +453,8 @@ export default function AdminLiveClassDashboardPage() {
                     ? "bg-emerald-50 text-emerald-700 border-emerald-200"
                     : lc.recording_status === "processing"
                     ? "bg-amber-50 text-amber-700 border-amber-200 animate-pulse"
+                    : lc.recording_status === "recording" || lc.recording_status === "failed"
+                    ? "bg-rose-50 text-rose-700 border-rose-200"
                     : "bg-slate-100 text-slate-600 border-slate-200"
                 }`}
               >
@@ -448,9 +462,19 @@ export default function AdminLiveClassDashboardPage() {
                   ? "Archived to R2"
                   : lc.recording_status === "processing"
                   ? "Processing..."
+                  : lc.recording_status === "recording"
+                  ? "Recording"
+                  : lc.recording_status === "failed"
+                  ? "Failed"
                   : "Not Archived"}
               </span>
             </div>
+
+            {lc.recording_error && lc.recording_status !== "ready" && (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-[11px] leading-relaxed text-rose-800">
+                {lc.recording_error}
+              </p>
+            )}
 
             {lc.recording_url ? (
               <div className="space-y-3">
@@ -492,7 +516,7 @@ export default function AdminLiveClassDashboardPage() {
                     onClick={handleSyncRecording}
                     disabled={syncingRecording}
                     className="p-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-slate-600 text-xs font-semibold transition-all disabled:opacity-50"
-                    title="Re-sync Recording from Stream"
+                    title="Collect the recording again"
                   >
                     {syncingRecording ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                   </button>
@@ -501,9 +525,9 @@ export default function AdminLiveClassDashboardPage() {
             ) : (
               <div className="space-y-3">
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  When this class ends, Cloudflare Stream will automatically generate the MP4 recording and offload it to Cloudflare R2 media storage, freeing up Stream storage capacity.
+                  The host studio records the class as it goes out and saves it to R2 when the class ends. A class streamed from OBS is recorded by Cloudflare Stream instead and copied to R2 after it ends.
                 </p>
-                {lc.status === "ended" && (
+                {lc.status === "ended" && lc.recording_status !== "processing" && (
                   <button
                     type="button"
                     onClick={handleSyncRecording}
@@ -513,12 +537,12 @@ export default function AdminLiveClassDashboardPage() {
                     {syncingRecording ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Offloading Recording to R2...</span>
+                        <span>Collecting the recording...</span>
                       </>
                     ) : (
                       <>
                         <PlayCircle className="w-3.5 h-3.5" />
-                        <span>Offload Recording from Cloudflare Stream to R2</span>
+                        <span>Collect the recording again</span>
                       </>
                     )}
                   </button>
