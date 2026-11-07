@@ -33,7 +33,7 @@ export function AffiliateSidebar({ isOpen = true, onClose }: AffiliateSidebarPro
   const navItems = [
     { name: "Dashboard", icon: LayoutDashboard, href: "/affiliate" },
     { name: "My Earnings", icon: DollarSign, href: "/affiliate/earnings" },
-    { name: "Marketing Tools", icon: Megaphone, href: "/affiliate/marketing-tools" },
+    { name: "My Referral Link", icon: Megaphone, href: "/affiliate/marketing-tools" },
     { name: "My Skills", icon: BookOpen, href: "/affiliate/my-skills" },
     { name: "Leaderboard", icon: Trophy, href: "/affiliate/leaderboard" },
     { name: "Referrals", icon: Users, href: "/affiliate/referrals" },

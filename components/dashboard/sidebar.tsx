@@ -23,7 +23,10 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { name: "My Skills", icon: BookOpen, href: "/dashboard/skills" },
     { name: "Certificates", icon: Award, href: "/dashboard/certificates" },
     { name: "Billing", icon: CreditCard, href: "/dashboard/billing" },
-    { name: "Earn With Referral", icon: Users, href: "/dashboard/earn" },
+    // Affiliates already have the programme; send them to their panel instead of the pitch.
+    user?.is_affiliate === 1
+      ? { name: "My Referral Panel", icon: Users, href: "/affiliate" }
+      : { name: "Earn With Referral", icon: Users, href: "/dashboard/earn" },
     { name: "Settings", icon: Settings, href: "/dashboard/settings" },
     { name: "Support", icon: HelpCircle, href: "/dashboard/support" },
   ]

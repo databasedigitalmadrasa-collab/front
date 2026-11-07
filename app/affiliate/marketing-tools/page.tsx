@@ -257,7 +257,7 @@ export default function MarketingToolsPage() {
             {/* Header */}
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div className="px-1 sm:px-0">
-                    <h1 className="text-[26px] sm:text-4xl font-heading font-bold text-gray-900 tracking-tight">Marketing Tools</h1>
+                    <h1 className="text-[26px] sm:text-4xl font-heading font-bold text-gray-900 tracking-tight">My Referral Link</h1>
                     <p className="mt-1.5 text-sm sm:text-base text-gray-500 max-w-2xl">
                         Choose a plan, get your unique referral link and start sharing with your audience.
                     </p>

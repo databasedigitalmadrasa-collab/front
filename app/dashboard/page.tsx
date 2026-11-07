@@ -306,18 +306,7 @@ export default function StudentDashboard() {
                 </Badge>
               </div>
 
-              {user?.is_affiliate === 1 ? (
-                <Link href="/affiliate">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="mt-4 bg-white/10 text-white border-white/20 hover:bg-white/20 hover:text-white gap-2 transition-all"
-                  >
-                    <Zap className="w-4 h-4" />
-                    Affiliate Panel
-                  </Button>
-                </Link>
-              ) : (
+              {user?.is_affiliate !== 1 && (
                 <div className="mt-4">
                   {affiliateRequest?.status === 'pending' ? (
                     <Badge className="bg-yellow-500/20 text-yellow-100 hover:bg-yellow-500/30 border-0 px-3 py-1 text-sm font-medium">

@@ -2,8 +2,7 @@
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { IndianRupee, Users, TrendingUp, Award, Copy, CheckCircle2, Bell } from "lucide-react"
+import { IndianRupee, Users, TrendingUp, Award, Bell } from "lucide-react"
 import { EarningsChart } from "@/components/affiliate/earnings-chart"
 import { RecentReferrals } from "@/components/affiliate/recent-referrals"
 import { useState, useEffect } from "react"
@@ -25,7 +24,6 @@ interface PlatformUpdate {
 
 export default function AffiliateDashboard() {
   const { user } = useUserAuth()
-  const [copied, setCopied] = useState(false)
   const [updates, setUpdates] = useState<PlatformUpdate[]>([])
   const [loadingUpdates, setLoadingUpdates] = useState(true)
   const [dashboardStats, setDashboardStats] = useState<any>(null)
@@ -145,12 +143,6 @@ export default function AffiliateDashboard() {
     return date.toLocaleDateString()
   }
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(referralLink)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
-
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
       <div className="bg-gradient-to-br from-[#0066ff] to-[#0052cc] rounded-2xl sm:rounded-3xl p-4 sm:p-6 lg:p-8 mb-6 sm:mb-8 text-white shadow-xl">
@@ -175,23 +167,6 @@ export default function AffiliateDashboard() {
               </div>
             </div>
           </div>
-
-          <Button
-            onClick={handleCopyLink}
-            className="bg-white text-[#0066ff] hover:bg-white/90 gap-2 w-full sm:w-auto shadow-lg text-xs sm:text-base px-4 py-2 h-auto min-h-[40px]"
-          >
-            {copied ? (
-              <>
-                <CheckCircle2 className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="text-xs sm:text-sm">Copied!</span>
-              </>
-            ) : (
-              <>
-                <Copy className="w-3 h-3 sm:w-4 sm:h-4" />
-                <span className="text-xs sm:text-sm">Share Referral Link</span>
-              </>
-            )}
-          </Button>
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mt-4 sm:mt-6 pt-4 sm:pt-6 border-t border-white/20">
