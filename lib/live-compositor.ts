@@ -56,6 +56,8 @@ export interface DrawStageOptions {
   /** Milliseconds since the compositor started, for anything that animates. */
   elapsedMs: number
   images: ImageCache
+  /** Shown on the holding slate when nothing is on stage — the class title. */
+  holdingTitle?: string
 }
 
 const BACKDROP = "#0b1120"
@@ -78,15 +80,33 @@ export function drawStage(o: DrawStageOptions): void {
   for (const overlay of o.overlays) drawOverlay(o, overlay)
 }
 
-function drawEmptyStage({ ctx, width, height }: DrawStageOptions): void {
-  ctx.fillStyle = "#64748b"
+/**
+ * The holding slate, for a stage the producer has emptied.
+ *
+ * This frame goes to the students, so it speaks to them. It used to say "Add a
+ * camera, then put it on air" — an instruction for the host, broadcast to the
+ * whole class whenever the stage was cleared between segments.
+ */
+function drawEmptyStage({ ctx, width, height, holdingTitle }: DrawStageOptions): void {
   ctx.textAlign = "center"
   ctx.textBaseline = "middle"
-  ctx.font = `600 ${Math.round(height * 0.038)}px ${FONT}`
-  ctx.fillText("Nothing is on stage yet", width / 2, height / 2 - height * 0.02)
-  ctx.font = `400 ${Math.round(height * 0.026)}px ${FONT}`
-  ctx.fillStyle = "#475569"
-  ctx.fillText("Add a camera, then put it on air", width / 2, height / 2 + height * 0.035)
+
+  if (holdingTitle) {
+    ctx.fillStyle = "#e2e8f0"
+    ctx.font = `700 ${Math.round(height * 0.05)}px ${FONT}`
+    ctx.fillText(fitText(ctx, holdingTitle, width * 0.8), width / 2, height / 2 - height * 0.035)
+  }
+  ctx.fillStyle = "#64748b"
+  ctx.font = `500 ${Math.round(height * 0.03)}px ${FONT}`
+  ctx.fillText("We'll be with you in a moment", width / 2, height / 2 + (holdingTitle ? height * 0.035 : 0))
+}
+
+/** Truncate with an ellipsis to fit `max` pixels in the current font. */
+function fitText(ctx: CanvasRenderingContext2D, text: string, max: number): string {
+  if (ctx.measureText(text).width <= max) return text
+  let out = text
+  while (out.length > 1 && ctx.measureText(`${out}…`).width > max) out = out.slice(0, -1)
+  return `${out}…`
 }
 
 function drawTile(o: DrawStageOptions, tile: StageTile): void {
@@ -107,8 +127,11 @@ function drawTile(o: DrawStageOptions, tile: StageTile): void {
   if (ready && video) {
     // A shared screen is letterboxed rather than cropped: cover-cropping a
     // slide deck cuts the edges off the slide, which is where the diagram
-    // usually is. Cameras are cropped, because a camera with bars looks broken.
-    if (tile.kind === "screen") drawContain(ctx, video, tile)
+    // usually is. A camera fills its tile — tiles are 16:9 like the camera, so
+    // that costs nothing — unless it is a different shape altogether: a phone
+    // held upright, cover-cropped into a 16:9 tile, shows a strip of chin.
+    const mismatch = Math.abs(Math.log(video.videoWidth / video.videoHeight / (tile.w / tile.h)))
+    if (tile.kind === "screen" || mismatch > 0.35) drawContain(ctx, video, tile)
     else drawCover(ctx, video, tile)
   } else {
     drawPlaceholder(o, tile, source)

@@ -9,14 +9,14 @@
  * Cloudflare receives, frame for frame. There is no second render path that
  * could drift from it.
  *
- * Over the top sit invisible hit targets, one per tile, in exactly the
- * geometry the compositor used. Clicking a face spotlights it. That gesture
- * only works because the layout is computed once, in `computeStageLayout`, and
- * shared — a separately-positioned overlay would put the click targets a few
- * pixels off and the host would spotlight the wrong person.
+ * Over each tile sits a hover toolbar — feature, mute, take off stage — in
+ * exactly the geometry the compositor used, because the layout is computed
+ * once in `computeStageLayout` and shared. Clicking a tile used to switch the
+ * whole stage to the Spotlight layout, which turned "who is this?" into a
+ * layout change on air.
  */
 
-import { Loader2, Maximize2, Radio, Users } from "lucide-react"
+import { ArrowDownToLine, Loader2, Mic, MicOff, Radio, Star } from "lucide-react"
 import type { StageTile } from "@/lib/live-stage"
 
 export interface ProgramCanvasProps {
@@ -27,13 +27,16 @@ export interface ProgramCanvasProps {
   running: boolean
   starting?: boolean
   live: boolean
-  elapsedLabel?: string
-  watching: number
-  spotlight: string | null
+  featured: string | null
+  muted: string[]
   actualFps: number
   targetFps: number
-  onSpotlight: (sourceId: string | null) => void
+  canProduce: boolean
+  onFeature: (sourceId: string | null) => void
+  onToggleMute: (sourceId: string) => void
+  onRemove: (sourceId: string) => void
   onStart: () => void
+  className?: string
 }
 
 export function ProgramCanvas({
@@ -44,13 +47,16 @@ export function ProgramCanvas({
   running,
   starting = false,
   live,
-  elapsedLabel,
-  watching,
-  spotlight,
+  featured,
+  muted,
   actualFps,
   targetFps,
-  onSpotlight,
+  canProduce,
+  onFeature,
+  onToggleMute,
+  onRemove,
   onStart,
+  className = "",
 }: ProgramCanvasProps) {
   // The encoder is falling behind when it cannot hold four fifths of the
   // target. Worth saying out loud: the usual cause is compositing at 1080p on
@@ -58,111 +64,125 @@ export function ProgramCanvas({
   const dropping = running && actualFps > 0 && actualFps < targetFps * 0.8
 
   return (
-    <div className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 shadow-lg">
-      <div className="relative aspect-video w-full bg-slate-950">
-        <canvas
-          ref={canvasRef}
-          width={width}
-          height={height}
-          className="h-full w-full"
-          aria-label="Programme output"
-        />
+    <div
+      className={`relative aspect-video w-full overflow-hidden rounded-xl bg-slate-950 shadow-lg ring-1 ${
+        live ? "ring-2 ring-rose-500" : "ring-slate-800"
+      } ${className}`}
+    >
+      <canvas ref={canvasRef} width={width} height={height} className="h-full w-full" aria-label="Programme output" />
 
-        {!running && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/92 px-6 text-center">
-            <Radio className="mb-3 h-9 w-9 text-slate-500" />
-            <h3 className="text-sm font-bold text-slate-100">The studio is not running</h3>
-            <p className="mt-1 max-w-xs text-[11px] leading-relaxed text-slate-400">
-              Starting the studio opens your camera and begins mixing. Nothing is broadcast until
-              you go live.
-            </p>
-            <button
-              type="button"
-              onClick={onStart}
-              disabled={starting}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-900 transition-colors hover:bg-slate-100 disabled:opacity-50"
-            >
-              {starting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {starting ? "Starting…" : "Start studio"}
-            </button>
-          </div>
-        )}
-
-        {/* Click targets, in the compositor's own coordinates. */}
-        {running && (
-          <div className="absolute inset-0">
-            {tiles.map((tile) => {
-              const spotlit = spotlight === tile.id
-              return (
-                <button
-                  key={tile.id}
-                  type="button"
-                  onClick={() => onSpotlight(spotlit ? null : tile.id)}
-                  title={spotlit ? `Remove spotlight from ${tile.label}` : `Spotlight ${tile.label}`}
-                  style={{
-                    left: `${(tile.x / width) * 100}%`,
-                    top: `${(tile.y / height) * 100}%`,
-                    width: `${(tile.w / width) * 100}%`,
-                    height: `${(tile.h / height) * 100}%`,
-                  }}
-                  className={`group absolute flex items-start justify-end p-1.5 transition-colors ${
-                    spotlit ? "ring-2 ring-inset ring-amber-400" : "hover:bg-white/5"
-                  }`}
-                >
-                  <span
-                    className={`rounded-md bg-slate-950/80 p-1 text-white transition-opacity ${
-                      spotlit ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                    }`}
-                  >
-                    <Maximize2 className="h-3 w-3" />
-                  </span>
-                </button>
-              )
-            })}
-          </div>
-        )}
-
-        <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-wrap items-start justify-between gap-2 p-3 sm:p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {live ? (
-              <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-2.5 py-1 text-[11px] font-extrabold text-white shadow-md">
-                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
-                ON AIR
-              </span>
-            ) : (
-              <span className="rounded-md bg-slate-800/90 px-2.5 py-1 text-[11px] font-bold uppercase text-slate-300 backdrop-blur-md">
-                {running ? "Preview" : "Idle"}
-              </span>
-            )}
-
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-slate-700/60 bg-slate-900/80 px-2.5 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
-              <Users className="h-3 w-3 text-blue-400" />
-              {watching}
-            </span>
-
-            {live && elapsedLabel && (
-              <span className="rounded-md border border-slate-700/60 bg-slate-900/80 px-2.5 py-1 font-mono text-[11px] font-bold text-emerald-400 backdrop-blur-md">
-                {elapsedLabel}
-              </span>
-            )}
-          </div>
-
-          {running && (
-            <span
-              className={`rounded-md px-2.5 py-1 text-[11px] font-bold backdrop-blur-md ${
-                dropping ? "bg-amber-500/20 text-amber-300" : "bg-slate-900/80 text-slate-300"
-              }`}
-              title={
-                dropping
-                  ? "The mixer is not keeping up. Try 720p, or take a source off the stage."
-                  : undefined
-              }
-            >
-              {actualFps} / {targetFps} fps
-            </span>
-          )}
+      {!running && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 px-6 text-center">
+          <Radio className="mb-3 h-9 w-9 text-slate-500" />
+          <h3 className="text-sm font-bold text-slate-100">Your studio is ready</h3>
+          <p className="mt-1 max-w-xs text-[11px] leading-relaxed text-slate-400">
+            Turn on your camera and microphone to set up the stage. Nothing is broadcast until you go live.
+          </p>
+          <button
+            type="button"
+            onClick={onStart}
+            disabled={starting}
+            className="mt-4 inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-xs font-bold text-slate-900 transition-colors hover:bg-slate-100 disabled:opacity-50"
+          >
+            {starting && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {starting ? "Starting…" : "Enter studio"}
+          </button>
         </div>
+      )}
+
+      {running && canProduce && (
+        <div className="absolute inset-0">
+          {tiles.map((tile) => {
+            const isFeatured = featured === tile.id
+            const isMuted = muted.includes(tile.id)
+            return (
+              <div
+                key={tile.id}
+                style={{
+                  left: `${(tile.x / width) * 100}%`,
+                  top: `${(tile.y / height) * 100}%`,
+                  width: `${(tile.w / width) * 100}%`,
+                  height: `${(tile.h / height) * 100}%`,
+                }}
+                className="group absolute rounded-md ring-inset transition-shadow hover:ring-2 hover:ring-blue-400/80"
+              >
+                <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  <TileButton
+                    title={isFeatured ? `Stop featuring ${tile.label}` : `Feature ${tile.label}`}
+                    active={isFeatured}
+                    onClick={() => onFeature(isFeatured ? null : tile.id)}
+                  >
+                    <Star className={`h-3.5 w-3.5 ${isFeatured ? "fill-current" : ""}`} />
+                  </TileButton>
+                  <TileButton
+                    title={isMuted ? `Unmute ${tile.label}` : `Mute ${tile.label}`}
+                    active={isMuted}
+                    tone="rose"
+                    onClick={() => onToggleMute(tile.id)}
+                  >
+                    {isMuted ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                  </TileButton>
+                  <TileButton title={`Remove ${tile.label} from the stage`} onClick={() => onRemove(tile.id)}>
+                    <ArrowDownToLine className="h-3.5 w-3.5" />
+                  </TileButton>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute left-2.5 top-2.5 flex items-center gap-1.5">
+        {live ? (
+          <span className="inline-flex items-center gap-1.5 rounded-md bg-rose-600 px-2 py-0.5 text-[10px] font-extrabold tracking-wide text-white shadow">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
+            ON AIR
+          </span>
+        ) : running ? (
+          <span className="rounded-md bg-slate-900/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-300 backdrop-blur">
+            Preview
+          </span>
+        ) : null}
       </div>
+
+      {dropping && (
+        <span
+          className="pointer-events-none absolute bottom-2.5 right-2.5 rounded-md bg-amber-500/90 px-2 py-0.5 text-[10px] font-bold text-amber-950"
+          title="The mixer is not keeping up. Try 720p in Settings, or take a source off the stage."
+        >
+          {actualFps}/{targetFps} fps — mixer is struggling
+        </span>
+      )}
     </div>
+  )
+}
+
+function TileButton({
+  title,
+  active,
+  tone = "amber",
+  onClick,
+  children,
+}: {
+  title: string
+  active?: boolean
+  tone?: "amber" | "rose"
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  const on = tone === "rose" ? "bg-rose-600 text-white" : "bg-amber-400 text-amber-950"
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      className={`pointer-events-auto rounded-md p-1.5 shadow backdrop-blur transition-colors ${
+        active ? on : "bg-slate-950/80 text-white hover:bg-slate-800"
+      }`}
+    >
+      {children}
+    </button>
   )
 }

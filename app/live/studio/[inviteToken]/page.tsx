@@ -367,9 +367,11 @@ function JoinedStudio({
 
   const producer = room.stage.peers.find((p) => p.producer)
   const mySourceIds = media.sources.map((s) => s.id)
-  const onAir =
-    room.liveClass?.status === "live" &&
-    (room.stage.onStage.length === 0 || room.stage.onStage.some((id) => mySourceIds.includes(id)))
+  // On stage means the host has put one of this browser's sources there; on
+  // air means that and the class is broadcasting. An empty stage used to count
+  // as "everyone", which told a co-host still waiting backstage they were live.
+  const onStage = room.stage.onStage.some((id) => mySourceIds.includes(id))
+  const onAir = room.liveClass?.status === "live" && onStage
 
   if (room.loading) {
     return (
@@ -421,6 +423,7 @@ function JoinedStudio({
         <div className="order-1 space-y-4 lg:col-span-8">
           <StatusBanner
             onAir={onAir}
+            onStage={onStage}
             hasProducer={!!producer}
             relayAvailable={rtc.relayAvailable}
             peerState={producer ? rtc.peerStates[producer.cid] : undefined}
@@ -548,11 +551,13 @@ function JoinedStudio({
  */
 function StatusBanner({
   onAir,
+  onStage,
   hasProducer,
   relayAvailable,
   peerState,
 }: {
   onAir: boolean
+  onStage: boolean
   hasProducer: boolean
   relayAvailable: boolean
   peerState: RTCPeerConnectionState | undefined
@@ -584,9 +589,20 @@ function StatusBanner({
     )
   }
 
-  return onAir ? (
-    <Banner tone="rose" icon={<Radio className="h-4 w-4 animate-pulse" />}>
-      You are on screen. The class can see and hear you.
+  if (onAir) {
+    return (
+      <Banner tone="rose" icon={<Radio className="h-4 w-4 animate-pulse" />}>
+        You are on screen. The class can see and hear you.
+      </Banner>
+    )
+  }
+
+  // Added to the stage before the broadcast starts: they are in the host's
+  // picture, and saying "not on screen yet" here sent guests looking for a
+  // button to press.
+  return onStage ? (
+    <Banner tone="amber" icon={<UserCheck className="h-4 w-4" />}>
+      You are on the stage. The class will see you as soon as the host goes live.
     </Banner>
   ) : (
     <Banner tone="emerald" icon={<UserCheck className="h-4 w-4" />}>
@@ -600,7 +616,7 @@ function Banner({
   icon,
   children,
 }: {
-  tone: "slate" | "rose" | "emerald"
+  tone: "slate" | "rose" | "emerald" | "amber"
   icon: React.ReactNode
   children: React.ReactNode
 }) {
@@ -608,6 +624,7 @@ function Banner({
     slate: "border-slate-200 bg-slate-50 text-slate-700",
     rose: "border-rose-200 bg-rose-50 text-rose-800",
     emerald: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    amber: "border-amber-200 bg-amber-50 text-amber-900",
   }
   return (
     <div className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${tones[tone]}`}>

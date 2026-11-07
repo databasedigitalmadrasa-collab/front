@@ -46,6 +46,8 @@ export interface CompositorSource {
 }
 
 export interface StageCompositorOptions {
+  /** The class title, for the holding slate shown when the stage is empty. */
+  title?: string
   width: number
   height: number
   fps: number
@@ -112,6 +114,15 @@ function createTicker(intervalMs: number, onTick: () => void): () => void {
   return () => clearInterval(handle)
 }
 
+/* ── which sources are on air ───────────────────────────────────────────── */
+
+/** The sources the producer has put on stage, in stage order, that exist. */
+function onStage(stage: StageSnapshot, sources: CompositorSource[]): CompositorSource[] {
+  return stage.onStage
+    .map((id) => sources.find((s) => s.id === id))
+    .filter((s): s is CompositorSource => !!s)
+}
+
 /* ── audio graph ────────────────────────────────────────────────────────── */
 
 interface AudioInput {
@@ -123,7 +134,7 @@ interface AudioInput {
 }
 
 export function useStageCompositor(opts: StageCompositorOptions): StageCompositor {
-  const { width, height, fps, showNamePlates, stage, overlays, sources, micTrack, remoteAudio } = opts
+  const { title, width, height, fps, showNamePlates, stage, overlays, sources, micTrack, remoteAudio } = opts
 
   const [running, setRunning] = useState(false)
   const [programStream, setProgramStream] = useState<MediaStream | null>(null)
@@ -149,8 +160,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
   const canvasTrackRef = useRef<MediaStreamTrack | null>(null)
 
   // Read inside the frame loop, which must not be re-created per render.
-  const stateRef = useRef({ stage, overlays, sources, showNamePlates, width, height, remoteAudio, micTrack })
-  stateRef.current = { stage, overlays, sources, showNamePlates, width, height, remoteAudio, micTrack }
+  const stateRef = useRef({ title, stage, overlays, sources, showNamePlates, width, height, remoteAudio, micTrack })
+  stateRef.current = { title, stage, overlays, sources, showNamePlates, width, height, remoteAudio, micTrack }
 
   const canvasRef = useCallback((el: HTMLCanvasElement | null) => {
     canvasElRef.current = el
@@ -329,18 +340,16 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
   /* ── which sources are on air ─────────────────────────────────────────── */
 
   /**
-   * An empty on-stage list means "everything", not "nothing".
+   * The on-stage list is the stage. Empty means empty.
    *
-   * A host who has never touched the stage controls has an empty list, and the
-   * only defensible reading of that is the one where their camera is on the
-   * air. Failing closed here would mean the first thing every new host sees is
-   * a black broadcast with no obvious cause.
+   * It used to mean "everything", so that a host who had never touched the
+   * controls would still be on air. The price was that taking the last person
+   * off the stage put every source back on it, and that anything new — a
+   * screen share, a co-host walking in — went straight to air. The studio now
+   * places the host's own camera on stage when it starts instead (see the
+   * host page), and everything else waits backstage until it is added.
    */
-  const onStageIds = useMemo(() => {
-    const available = sources.map((s) => s.id)
-    const curated = stage.onStage.filter((id) => available.includes(id))
-    return curated.length ? curated : available
-  }, [sources, stage.onStage])
+  const onStageIds = useMemo(() => onStage(stage, sources).map((s) => s.id), [sources, stage])
 
   /* ── the frame ────────────────────────────────────────────────────────── */
 
@@ -357,23 +366,18 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
       canvas.height = s.height
     }
 
-    const available = s.sources.map((x) => x.id)
-    const curated = s.stage.onStage.filter((id) => available.includes(id))
-    const liveIds = curated.length ? curated : available
-    const onStage = liveIds
-      .map((id) => s.sources.find((x) => x.id === id))
-      .filter((x): x is CompositorSource => !!x)
+    const live = onStage(s.stage, s.sources)
 
     const nextTiles = computeStageLayout({
       layout: s.stage.layout,
-      sources: onStage.map((x) => ({ id: x.id, kind: x.kind, label: x.label })),
+      sources: live.map((x) => ({ id: x.id, kind: x.kind, label: x.label })),
       spotlight: s.stage.spotlight,
       width: s.width,
       height: s.height,
     })
 
     const drawable = new Map<string, DrawableSource>()
-    for (const source of onStage) {
+    for (const source of live) {
       drawable.set(source.id, {
         id: source.id,
         label: source.label,
@@ -394,6 +398,7 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
       showNamePlates: s.showNamePlates,
       elapsedMs: Date.now() - startedAtRef.current,
       images: imagesRef.current,
+      holdingTitle: s.title,
     })
 
     syncAudio()
