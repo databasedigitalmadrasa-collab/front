@@ -15,7 +15,6 @@ import {
   ArrowLeft,
   Calendar,
   Clock,
-  Download,
   FileText,
   Sparkles,
   AlertCircle,
@@ -55,8 +54,6 @@ interface RecordingSegment {
    * expires (after hours); `handleVideoError` fetches fresh ones.
    */
   url: string
-  /** The same file, served as an attachment. */
-  download_url?: string
   mime_type: string
   duration_seconds: number | null
   size_bytes: number | null
@@ -89,15 +86,6 @@ function formatSeconds(secs: number): string {
   const mins = Math.floor(secs / 60)
   const remainingSecs = Math.floor(secs % 60)
   return `${String(mins).padStart(2, "0")}:${String(remainingSecs).padStart(2, "0")}`
-}
-
-function formatBytes(bytes: number): string {
-  if (!bytes) return ""
-  const mb = bytes / (1024 * 1024)
-  if (mb >= 1000) {
-    return `${(mb / 1024).toFixed(2)} GB`
-  }
-  return `${mb.toFixed(1)} MB`
 }
 
 export default function StudentRecordingPlayerPage() {
@@ -318,11 +306,6 @@ export default function StudentRecordingPlayerPage() {
 
   const current = segments[part] ?? null
   const videoUrl = current?.url ?? lc.recording_url
-  // Cross-origin, so the `download` attribute is ignored; the API's
-  // attachment link is what actually makes the browser save the file.
-  const downloadUrl = current?.download_url ?? videoUrl
-  const downloadExt = current?.mime_type === "video/webm" ? "webm" : "mp4"
-  const downloadSize = current ? current.size_bytes : lc.recording_size_bytes
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto space-y-6 font-sans">
@@ -379,6 +362,11 @@ export default function StudentRecordingPlayerPage() {
               onClick={handlePlayPause}
               className="w-full h-full object-contain cursor-pointer"
               playsInline
+              // Recordings are watch-only for students: no download in the
+              // browser's own controls (fullscreen shows them) and no
+              // "Save video as…" on right-click.
+              controlsList="nodownload"
+              onContextMenu={(e) => e.preventDefault()}
             />
 
             {/* Floating Play Button Overlay (when paused) */}
@@ -530,23 +518,6 @@ export default function StudentRecordingPlayerPage() {
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h2 className="text-base font-bold text-slate-900">About this Class</h2>
-            {isRecordingReady && downloadUrl && (
-              <a
-                href={downloadUrl}
-                download={`class-${lc.id}-recording${segments.length > 1 ? `-part-${part + 1}` : ""}.${downloadExt}`}
-                target={current?.download_url ? undefined : "_blank"}
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border border-slate-200"
-              >
-                <Download className="w-3.5 h-3.5 text-blue-600" />
-                <span>
-                  Download {segments.length > 1 ? `Part ${part + 1}` : downloadExt.toUpperCase()}
-                </span>
-                {downloadSize ? (
-                  <span className="text-slate-400 text-[10px]">({formatBytes(downloadSize)})</span>
-                ) : null}
-              </a>
-            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
