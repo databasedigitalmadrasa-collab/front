@@ -49,7 +49,6 @@ import {
   EyeOff,
   Gauge,
   HelpCircle,
-  Info,
   Layers,
   Loader2,
   MessageSquare,
@@ -59,12 +58,12 @@ import {
   Paperclip,
   Radio,
   Settings,
-  Sliders,
   StopCircle,
   UserPlus,
   Users,
   Video,
   VideoOff,
+  X,
 } from "lucide-react"
 import { dmApi } from "@/lib/dm-api"
 import { useLiveRoom } from "@/hooks/use-live-room"
@@ -80,7 +79,8 @@ import { ParticipantsPanel } from "@/components/live/participants-panel"
 import { MaterialsPanel } from "@/components/live/materials-panel"
 import { AnnouncementsPanel } from "@/components/live/announcements-panel"
 import { ProgramCanvas } from "@/components/live/stage/program-canvas"
-import { StageControls } from "@/components/live/stage/stage-controls"
+import { Backstage, type PendingSource } from "@/components/live/stage/backstage"
+import { LayoutPicker } from "@/components/live/stage/layout-picker"
 import { DevicePanel } from "@/components/live/stage/device-panel"
 import { OverlayManager } from "@/components/live/stage/overlay-manager"
 import { CohostLinks } from "@/components/live/stage/cohost-links"
@@ -110,8 +110,8 @@ interface AdminLiveClass {
   overlay_render: "burn" | "viewer" | "both"
 }
 
-type StudioTab = "broadcast" | "overlays" | "cohosts" | "materials" | "announcements" | "info"
-type RailTab = "chat" | "qa" | "people"
+/** The panels on the studio's right-hand rail. */
+type StudioPanel = "chat" | "qa" | "people" | "brand" | "guests" | "files" | "notices"
 
 const HEALTH_STYLES: Record<StreamHealth, { label: string; chip: string }> = {
   excellent: { label: "Excellent", chip: "bg-emerald-500/20 text-emerald-300" },
@@ -133,8 +133,9 @@ export default function HostStudioPage() {
   const [starting, setStarting] = useState(false)
   const [confirmEnd, setConfirmEnd] = useState(false)
 
-  const [tab, setTab] = useState<StudioTab>("broadcast")
-  const [rail, setRail] = useState<RailTab>("chat")
+  const [panel, setPanel] = useState<StudioPanel | null>("chat")
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<"broadcast" | "class">("broadcast")
 
   const media = useMediaSources()
   const room = useLiveRoom({
@@ -244,6 +245,7 @@ export default function HostStudioPage() {
   )
 
   const compositor = useStageCompositor({
+    title: cls?.title,
     width: cls?.broadcast_width ?? 1280,
     height: cls?.broadcast_height ?? 720,
     fps: cls?.broadcast_fps ?? 30,
@@ -468,25 +470,24 @@ export default function HostStudioPage() {
 
   /* ── stage actions ────────────────────────────────────────────────────── */
 
+  const canProduce = !!room.you && room.you.role === "host"
+
   const setLayout = (layout: StageLayout) => room.setStage({ layout })
-  const setSpotlight = (sourceId: string | null) =>
-    room.setStage({
-      spotlight: sourceId,
-      // Spotlighting is a request to see one person large. Leaving the layout
-      // on "grid" would accept the click and change nothing on screen, which
-      // reads as a broken button.
-      ...(sourceId && room.stage.layout !== "spotlight" ? { layout: "spotlight" as StageLayout } : {}),
-    })
+
+  // Featuring picks who is large in Solo, Leader, Sidebar and PiP, and who
+  // takes the first seat in Group. It never changes the layout by itself:
+  // clicking a face used to switch the whole stage to Spotlight.
+  const setFeatured = (sourceId: string | null) => room.setStage({ spotlight: sourceId })
 
   const toggleOnStage = (sourceId: string) => {
-    // An empty list means "everything", so the first removal has to be
-    // expressed against the full list rather than against an empty one.
     const current = compositor.onStageIds
-    const next = current.includes(sourceId)
-      ? current.filter((x) => x !== sourceId)
-      : [...current, sourceId]
-    room.setStage({ onStage: next })
+    room.setStage({
+      onStage: current.includes(sourceId) ? current.filter((x) => x !== sourceId) : [...current, sourceId],
+    })
   }
+
+  const removeFromStage = (sourceId: string) =>
+    room.setStage({ onStage: compositor.onStageIds.filter((x) => x !== sourceId) })
 
   const toggleMuted = (sourceId: string) => {
     const muted = room.stage.muted.includes(sourceId)
@@ -495,14 +496,58 @@ export default function HostStudioPage() {
     room.setStage({ muted })
   }
 
+  /**
+   * What goes on stage without being asked: the host's own camera when the
+   * studio opens onto an empty stage, and a screen share the moment it starts.
+   * Each source is placed at most once, so taking it off again sticks — the
+   * old rule ("an empty stage shows everything") put the whole backstage on
+   * air whenever the last person was removed.
+   */
+  const placedRef = useRef<Set<string>>(new Set())
+  const onStageKey = compositor.onStageIds.join("|")
+  useEffect(() => {
+    if (!compositor.running || !canProduce) return
+    const current = compositor.onStageIds
+    for (const sourceId of current) placedRef.current.add(sourceId)
+
+    const additions: string[] = []
+    const camera = media.sources.find((s) => s.kind === "camera")
+    if (camera && !current.length && !placedRef.current.has(camera.id)) additions.push(camera.id)
+    for (const source of media.sources) {
+      if (source.kind === "screen" && !placedRef.current.has(source.id)) additions.push(source.id)
+    }
+    if (!additions.length) return
+
+    for (const sourceId of additions) placedRef.current.add(sourceId)
+    room.setStage({ onStage: [...current, ...additions] })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compositor.running, canProduce, onStageKey, media.sources])
+
+  /** Co-host sources the room has announced but WebRTC has not delivered. */
+  const pendingSources: PendingSource[] = useMemo(() => {
+    const out: PendingSource[] = []
+    for (const peer of room.stage.peers) {
+      if (peer.cid === room.you?.cid) continue
+      for (const source of peer.sources) {
+        if (rtc.remoteVideo.get(source.id)) continue
+        out.push({
+          id: source.id,
+          kind: source.kind,
+          label: source.kind === "screen" ? `${peer.name} — screen` : peer.name,
+        })
+      }
+    }
+    return out
+  }, [room.stage.peers, rtc.remoteVideo, room.you?.cid])
+
   /* ── render ───────────────────────────────────────────────────────────── */
 
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-100">
         <div className="text-center">
           <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-sm font-medium text-slate-500">Loading host studio…</p>
+          <p className="text-sm font-medium text-slate-500">Loading the studio…</p>
         </div>
       </div>
     )
@@ -510,7 +555,7 @@ export default function HostStudioPage() {
 
   if (loadError || !cls) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center p-4">
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-100 p-4">
         <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
           <AlertTriangle className="mx-auto mb-4 h-10 w-10 text-rose-500" />
           <h2 className="text-lg font-bold text-slate-900">Live class not found</h2>
@@ -534,84 +579,113 @@ export default function HostStudioPage() {
   const cohosts = room.stage.peers.filter((p) => !p.producer)
   const unanswered = room.questions.filter((q) => !q.answered).length
   const primaryCamera = media.sources.find((s) => s.kind === "camera")
+  const screenShare = media.sources.find((s) => s.kind === "screen")
+  const ended = status === "ended" || status === "cancelled"
+  const errorMessage = actionError || media.error || whip.error || compositor.error || recorder.error
+
+  const stageSources = compositor.onStageIds
+    .map((sourceId) => compositorSources.find((s) => s.id === sourceId))
+    .filter((s): s is CompositorSource => !!s)
+    .map((s) => ({ id: s.id, kind: s.kind, label: s.label }))
+
+  const togglePanel = (next: StudioPanel) => setPanel((current) => (current === next ? null : next))
+
+  const panelBadges: Partial<Record<StudioPanel, number>> = {
+    qa: unanswered,
+    people: room.presence.length,
+    brand: room.liveOverlays.length,
+    guests: cohosts.length,
+    files: room.materials.length,
+    notices: room.announcements.length,
+  }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4 p-4 sm:space-y-6 sm:p-6">
-      {/* ── Page header ───────────────────────────────────────────────────── */}
-      <header className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <Link
-            href="/admin/live-classes"
-            aria-label="Back to live classes"
-            className="mt-0.5 flex-shrink-0 rounded-xl p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
-          >
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
+    // Full screen, over the admin chrome: a studio needs the whole window, and
+    // the dashboard sidebar was costing the stage a third of its width.
+    <div className="fixed inset-0 z-[60] flex flex-col bg-slate-100 text-slate-900">
+      {/* ── Top bar ───────────────────────────────────────────────────────── */}
+      <header className="flex h-14 flex-shrink-0 items-center gap-2 border-b border-slate-200 bg-white px-2 sm:gap-3 sm:px-4">
+        <Link
+          href="/admin/live-classes"
+          aria-label="Leave the studio"
+          className="flex-shrink-0 rounded-lg p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900"
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
 
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-xl font-bold tracking-tight text-slate-900">{cls.title}</h1>
-              <StatusPill status={status} />
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-medium text-slate-500">
-              <span className="inline-flex items-center gap-1">
-                <Users className="h-3 w-3 text-indigo-500" />
-                {students.length} {students.length === 1 ? "student" : "students"} watching
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <UserPlus className="h-3 w-3 text-emerald-500" />
-                {cohosts.length} {cohosts.length === 1 ? "co-host" : "co-hosts"} connected
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Info className="h-3 w-3 text-amber-500" />
-                {formatFull(cls.scheduled_at)}
-              </span>
-              <span className="inline-flex items-center gap-1">
-                <Sliders className="h-3 w-3 text-slate-400" />
-                {cls.plan_id ? `Plan #${cls.plan_id}` : "All subscribers"}
-              </span>
-            </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-sm font-bold tracking-tight sm:text-base">{cls.title}</h1>
+            <StatusPill status={status} />
           </div>
+          <p className="hidden truncate text-[11px] text-slate-500 sm:block">
+            {formatFull(cls.scheduled_at)} · {cls.plan_id ? `Plan #${cls.plan_id}` : "All subscribers"}
+          </p>
         </div>
 
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 self-end md:self-auto">
-          <div className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-semibold text-white shadow-2xs">
-            <span>
-              Powered by <span className="font-extrabold text-blue-400">Blaze</span> By WEM STUDIOS
+        <div className="hidden flex-shrink-0 items-center gap-2 md:flex">
+          {isLive && startedAt && (
+            <span className="rounded-lg bg-slate-900 px-2.5 py-1.5 font-mono text-xs font-bold text-emerald-400">
+              {formatDuration(elapsed)}
             </span>
-          </div>
-
-          <a
-            href={publicLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-          >
-            View class page
-            <ExternalLink className="h-3.5 w-3.5" />
-          </a>
-          {isLive && (
-            <button
-              type="button"
-              onClick={() => setConfirmEnd(true)}
-              disabled={ending}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs font-bold text-rose-600 transition-colors hover:bg-rose-100 disabled:opacity-50"
-            >
-              {ending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <StopCircle className="h-3.5 w-3.5" />}
-              End class
-            </button>
           )}
+          <span
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700"
+            title="Students watching"
+          >
+            <Users className="h-3.5 w-3.5 text-indigo-500" />
+            {students.length}
+          </span>
+          <HealthBadge health={whip.stats.health} bitrateKbps={whip.stats.bitrateKbps} publishing={whip.publishing} />
+          <RecordingBadge recorder={recorder} />
         </div>
+
+        <a
+          href={publicLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hidden flex-shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 lg:inline-flex"
+        >
+          Class page
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+
+        {ended ? (
+          <span className="flex-shrink-0 rounded-lg bg-slate-100 px-3 py-2 text-xs font-bold capitalize text-slate-500">
+            Class {status}
+          </span>
+        ) : isLive ? (
+          <button
+            type="button"
+            onClick={() => setConfirmEnd(true)}
+            disabled={ending}
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-bold text-white shadow-sm transition-colors hover:bg-rose-700 disabled:opacity-50 sm:px-4"
+          >
+            {ending ? <Loader2 className="h-4 w-4 animate-spin" /> : <StopCircle className="h-4 w-4" />}
+            End broadcast
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={goLive}
+            disabled={goingLive}
+            className="inline-flex flex-shrink-0 items-center gap-2 rounded-lg bg-rose-600 px-4 py-2 text-xs font-extrabold text-white shadow-sm transition-colors hover:bg-rose-500 disabled:opacity-50 sm:px-5"
+          >
+            {goingLive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />}
+            {goingLive ? "Starting…" : "Go live"}
+          </button>
+        )}
       </header>
 
+      {/* ── Notices ───────────────────────────────────────────────────────── */}
       {(recorder.state === "saving" || (recorder.state === "saved" && status === "ended")) && (
-        <div className="flex items-start gap-2.5 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3">
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-blue-200 bg-blue-50 px-4 py-2">
           {recorder.state === "saving" ? (
-            <Loader2 className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
+            <Loader2 className="h-4 w-4 flex-shrink-0 animate-spin text-blue-600" />
           ) : (
-            <Check className="mt-0.5 h-4 w-4 flex-shrink-0 text-blue-600" />
+            <Check className="h-4 w-4 flex-shrink-0 text-blue-600" />
           )}
-          <p className="text-xs font-medium leading-relaxed text-blue-900">
+          <p className="text-xs font-medium text-blue-900">
             {recorder.state === "saving"
               ? `Saving the recording — ${uploadPercent(recorder)}% uploaded. Keep this tab open until it finishes.`
               : "Recording saved. It will appear on the class page and for students in a minute."}
@@ -619,310 +693,189 @@ export default function HostStudioPage() {
         </div>
       )}
 
-      {(actionError || media.error || whip.error || compositor.error || recorder.error) && (
-        <div className="flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3">
-          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-rose-600" />
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium leading-relaxed text-rose-800">
-              {actionError || media.error || whip.error || compositor.error || recorder.error}
-            </p>
-            {isLive && !whip.publishing && (
-              <button
-                type="button"
-                onClick={retryBroadcast}
-                className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-rose-700"
-              >
-                Retry broadcast
-              </button>
-            )}
-          </div>
+      {errorMessage && (
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-rose-200 bg-rose-50 px-4 py-2">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 text-rose-600" />
+          <p className="min-w-0 flex-1 text-xs font-medium text-rose-800">{errorMessage}</p>
+          {isLive && !whip.publishing && (
+            <button
+              type="button"
+              onClick={retryBroadcast}
+              className="flex-shrink-0 rounded-lg bg-rose-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-rose-700"
+            >
+              Retry broadcast
+            </button>
+          )}
         </div>
       )}
 
-      <div className="grid gap-4 lg:grid-cols-12 lg:gap-6">
-        {/* ── Programme ───────────────────────────────────────────────────── */}
-        <div className="order-1 space-y-4 lg:col-span-8">
-          <ProgramCanvas
-            canvasRef={compositor.canvasRef}
-            tiles={compositor.tiles}
-            width={cls.broadcast_width}
-            height={cls.broadcast_height}
-            running={compositor.running}
-            starting={starting}
-            live={isLive && whip.publishing}
-            elapsedLabel={startedAt ? formatDuration(elapsed) : undefined}
-            watching={students.length}
-            spotlight={room.stage.spotlight}
-            actualFps={compositor.actualFps}
-            targetFps={cls.broadcast_fps}
-            onSpotlight={setSpotlight}
-            onStart={() => void startStudio()}
-          />
-
-          {/* ── Control bar ─────────────────────────────────────────────── */}
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 px-3 py-3 sm:px-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <ControlButton
-                onClick={media.toggleMic}
-                disabled={!media.micTrack}
-                active={media.micMuted}
-                icon={media.micMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-                label={media.micMuted ? "Unmute" : "Mute"}
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:flex-row lg:overflow-hidden">
+        {/* ── Stage ─────────────────────────────────────────────────────── */}
+        <main className="flex min-w-0 flex-1 flex-col gap-3 p-3 sm:p-4 lg:overflow-y-auto">
+          <div className="flex flex-1 items-center justify-center">
+            {/* As large as the window allows while leaving room for the
+                layouts, backstage and controls below it. */}
+            <div className="w-full" style={{ maxWidth: "max(320px, calc((100dvh - 460px) * 16 / 9))" }}>
+              <ProgramCanvas
+                canvasRef={compositor.canvasRef}
+                tiles={compositor.tiles}
+                width={cls.broadcast_width}
+                height={cls.broadcast_height}
+                running={compositor.running}
+                starting={starting}
+                live={isLive && whip.publishing}
+                featured={room.stage.spotlight}
+                muted={room.stage.muted}
+                actualFps={compositor.actualFps}
+                targetFps={cls.broadcast_fps}
+                canProduce={canProduce}
+                onFeature={setFeatured}
+                onToggleMute={toggleMuted}
+                onRemove={removeFromStage}
+                onStart={() => void startStudio()}
               />
-              <ControlButton
-                onClick={() => primaryCamera && media.toggleSource(primaryCamera.id)}
-                disabled={!primaryCamera}
-                active={!!primaryCamera && !primaryCamera.enabled}
-                icon={primaryCamera?.enabled ? <Video className="h-4 w-4" /> : <VideoOff className="h-4 w-4" />}
-                label={primaryCamera?.enabled ? "Stop camera" : "Start camera"}
-              />
-              <ControlButton
-                onClick={() => void media.startScreenShare()}
-                activeTone="blue"
-                active={media.screenSharing}
-                icon={<MonitorUp className="h-4 w-4" />}
-                label={media.screenSharing ? "Sharing" : "Share screen"}
-              />
-              <ControlButton
-                onClick={() => setTab("broadcast")}
-                icon={<Settings className="h-4 w-4" />}
-                label="Devices"
-              />
-              <HealthBadge
-                health={whip.stats.health}
-                bitrateKbps={whip.stats.bitrateKbps}
-                publishing={whip.publishing}
-              />
-              <RecordingBadge recorder={recorder} />
-            </div>
-
-            <div className="ml-auto">
-              {status === "ended" || status === "cancelled" ? (
-                <span className="rounded-xl bg-slate-800 px-4 py-2.5 text-xs font-bold text-slate-400">
-                  Class {status}
-                </span>
-              ) : isLive ? (
-                <button
-                  type="button"
-                  onClick={() => setConfirmEnd(true)}
-                  disabled={ending}
-                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-2.5 text-xs font-bold text-white shadow-md transition-colors hover:bg-rose-700 disabled:opacity-50"
-                >
-                  {ending ? <Loader2 className="h-4 w-4 animate-spin" /> : <StopCircle className="h-4 w-4" />}
-                  Stop live class
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={goLive}
-                  disabled={goingLive}
-                  className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-6 py-2.5 text-xs font-extrabold text-white shadow-lg transition-colors hover:bg-rose-500 disabled:opacity-50"
-                >
-                  {goingLive ? <Loader2 className="h-4 w-4 animate-spin" /> : <Radio className="h-4 w-4" />}
-                  {goingLive ? "Starting…" : "Go live"}
-                </button>
-              )}
             </div>
           </div>
 
-          <StageControls
-            stage={room.stage}
-            sources={compositorSources}
-            onStageIds={compositor.onStageIds}
-            peerStates={rtc.peerStates}
-            canProduce={!!room.you && room.you.role === "host"}
+          <LayoutPicker
+            layout={room.stage.layout}
+            sources={stageSources}
+            featured={room.stage.spotlight}
+            disabled={!canProduce}
             onLayout={setLayout}
-            onToggleOnStage={toggleOnStage}
-            onSpotlight={setSpotlight}
-            onToggleMute={toggleMuted}
           />
-        </div>
 
-        {/* ── Rail ─────────────────────────────────────────────────────────── */}
-        <div className="order-2 space-y-4 lg:col-span-4 lg:row-span-2">
-          <div className="grid grid-cols-3 gap-1 rounded-xl border border-slate-200/80 bg-white p-1 shadow-xs">
-            <RailButton
-              active={rail === "chat"}
-              onClick={() => setRail("chat")}
-              icon={<MessageSquare className="h-3.5 w-3.5" />}
-              label="Chat"
+          <section className="rounded-2xl border border-slate-200 bg-white/80 p-2.5" aria-labelledby="backstage-heading">
+            <div className="mb-2 flex items-baseline justify-between gap-2 px-1">
+              <h2 id="backstage-heading" className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                Backstage
+              </h2>
+              <p className="text-[11px] text-slate-400">
+                {compositor.onStageIds.length} on stage · only what is on stage goes out
+              </p>
+            </div>
+            {compositor.running || compositorSources.length ? (
+              <Backstage
+                sources={compositorSources}
+                pending={pendingSources}
+                onStageIds={compositor.onStageIds}
+                visibleIds={compositor.tiles.map((t) => t.id)}
+                featured={room.stage.spotlight}
+                muted={room.stage.muted}
+                peerStates={rtc.peerStates}
+                canProduce={canProduce}
+                onToggleStage={toggleOnStage}
+                onFeature={setFeatured}
+                onToggleMute={toggleMuted}
+                onToggleCamera={media.toggleSource}
+                onRemoveSource={media.removeSource}
+                onAddCamera={() => void media.addCamera()}
+                onShareScreen={screenShare ? undefined : () => void media.startScreenShare()}
+                onInvite={() => setPanel("guests")}
+                canAddSources={compositor.running && !ended}
+              />
+            ) : (
+              <p className="rounded-xl bg-slate-50 px-3 py-5 text-center text-xs text-slate-400">
+                Enter the studio to see your camera here. Guests you invite wait here until you add them to the stage.
+              </p>
+            )}
+          </section>
+
+          {/* ── Controls ──────────────────────────────────────────────────── */}
+          <div className="flex flex-wrap items-start justify-center gap-1 sm:gap-2">
+            <StudioButton
+              onClick={media.toggleMic}
+              disabled={!media.micTrack}
+              active={media.micMuted}
+              tone="rose"
+              icon={media.micMuted ? <MicOff className="h-[18px] w-[18px]" /> : <Mic className="h-[18px] w-[18px]" />}
+              label={media.micMuted ? "Unmute" : "Mute"}
             />
-            <RailButton
-              active={rail === "qa"}
-              onClick={() => setRail("qa")}
-              icon={<HelpCircle className="h-3.5 w-3.5" />}
-              label="Q&A"
-              badge={unanswered || undefined}
+            <StudioButton
+              onClick={() => primaryCamera && media.toggleSource(primaryCamera.id)}
+              disabled={!primaryCamera}
+              active={!!primaryCamera && !primaryCamera.enabled}
+              tone="rose"
+              icon={
+                primaryCamera?.enabled === false ? (
+                  <VideoOff className="h-[18px] w-[18px]" />
+                ) : (
+                  <Video className="h-[18px] w-[18px]" />
+                )
+              }
+              label={primaryCamera?.enabled === false ? "Start cam" : "Stop cam"}
             />
-            <RailButton
-              active={rail === "people"}
-              onClick={() => setRail("people")}
-              icon={<Users className="h-3.5 w-3.5" />}
-              label="People"
-              badge={room.presence.length || undefined}
+            <StudioButton
+              onClick={() => (screenShare ? media.removeSource(screenShare.id) : void media.startScreenShare())}
+              disabled={!compositor.running}
+              active={!!screenShare}
+              tone="blue"
+              icon={<MonitorUp className="h-[18px] w-[18px]" />}
+              label={screenShare ? "Stop share" : "Share"}
+            />
+            <StudioButton
+              onClick={() => setPanel("guests")}
+              icon={<UserPlus className="h-[18px] w-[18px]" />}
+              label="Invite"
+            />
+            <StudioButton
+              onClick={() => setSettingsOpen(true)}
+              icon={<Settings className="h-[18px] w-[18px]" />}
+              label="Settings"
             />
           </div>
+        </main>
 
-          {rail === "chat" && (
-            <ChatPanel
-              className="h-[52vh] min-h-[300px]"
-              messages={room.chat}
-              you={room.you}
-              connection={room.connection}
-              enabled={!!cls.chat_enabled && status !== "ended"}
-              disabledReason={status === "ended" ? "This class has ended." : "You have turned chat off."}
-              onSend={(body) => room.send("chat", body)}
-              onDelete={room.removeMessage}
-            />
-          )}
-
-          {rail === "qa" && (
-            <QaPanel
-              className="h-[52vh] min-h-[300px]"
-              questions={room.questions}
-              you={room.you}
-              enabled={!!cls.qa_enabled && status !== "ended"}
-              disabledReason={status === "ended" ? "This class has ended." : "You have turned Q&A off."}
-              onAsk={(body) => room.send("question", body)}
-              onAnswer={room.answerQuestion}
-              onPin={room.togglePin}
-              onDelete={room.removeMessage}
-            />
-          )}
-
-          {rail === "people" && (
-            <ParticipantsPanel
-              className="h-[52vh] min-h-[300px]"
-              presence={room.presence}
-              you={room.you}
-              collapseAfter={0}
-            />
-          )}
-
-          {/* ── Class controls ─────────────────────────────────────────────── */}
-          <section className="space-y-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs sm:p-5">
-            <h3 className="text-sm font-bold tracking-tight text-slate-900">Class controls</h3>
-
-            <div
-              className={`rounded-2xl border p-3.5 ${
-                isLive ? "border-emerald-200 bg-emerald-50" : "border-slate-200 bg-slate-50"
-              }`}
-            >
-              <div className="flex items-center gap-3">
-                <span
-                  className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl ${
-                    isLive ? "bg-emerald-500/20 text-emerald-700" : "bg-slate-200 text-slate-500"
-                  }`}
-                >
-                  <Radio className={`h-4 w-4 ${isLive ? "animate-pulse" : ""}`} />
-                </span>
-                <div className="min-w-0">
-                  <p className={`text-xs font-bold ${isLive ? "text-emerald-900" : "text-slate-800"}`}>
-                    {isLive ? "You are live" : status === "ended" ? "Class ended" : "Ready to broadcast"}
-                  </p>
-                  <p className={`text-[11px] ${isLive ? "text-emerald-700" : "text-slate-500"}`}>
-                    {isLive && startedAt
-                      ? `Started at ${formatTime(startedAt)}`
-                      : status === "ended"
-                        ? "Students can no longer join"
-                        : "Press Go live when you are ready"}
-                  </p>
-                </div>
-              </div>
+        {/* ── Side panel ─────────────────────────────────────────────────── */}
+        {panel && (
+          <aside className="order-3 flex w-full flex-shrink-0 flex-col border-t border-slate-200 bg-white lg:order-2 lg:w-[360px] lg:border-l lg:border-t-0">
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-slate-100 px-4 py-2.5">
+              <h2 className="text-sm font-bold">{PANELS.find((p) => p.id === panel)?.title}</h2>
+              <button
+                type="button"
+                onClick={() => setPanel(null)}
+                aria-label="Close panel"
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
-            <LinkField label="Student link (subscribers)" value={publicLink} />
-            <LinkField label="Guest link (anyone with the URL)" value={guestLink} />
-            <LinkField label="Live class ID" value={`DM-LIVE-${cls.id}`} mono />
-
-            <div className="space-y-1 border-t border-slate-100 pt-3">
-              <Toggle
-                label="Live chat"
-                hint="Students can send messages"
-                checked={!!cls.chat_enabled}
-                onChange={(v) => toggleSetting("chat_enabled", v)}
-              />
-              <Toggle
-                label="Questions & answers"
-                hint="Students can ask questions you answer"
-                checked={!!cls.qa_enabled}
-                onChange={(v) => toggleSetting("qa_enabled", v)}
-              />
-              <Toggle
-                label="Recording"
-                hint="Save the class so students can rewatch it"
-                checked={!!cls.recording_enabled}
-                onChange={(v) => toggleSetting("recording_enabled", v)}
-              />
-              <Toggle
-                label="Name plates"
-                hint="Draw each person's name on their tile"
-                checked={!!cls.show_name_plates}
-                onChange={(v) => void saveBroadcast({ show_name_plates: v })}
-              />
-            </div>
-          </section>
-        </div>
-
-        {/* ── Studio tabs ──────────────────────────────────────────────────── */}
-        <div className="order-3 lg:col-span-8">
-          <section className="overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-xs">
-            <div className="flex overflow-x-auto border-b border-slate-100 bg-slate-50/60 px-2">
-              <StudioTabButton
-                active={tab === "broadcast"}
-                onClick={() => setTab("broadcast")}
-                icon={<Gauge className="h-4 w-4" />}
-                label="Broadcast"
-              />
-              <StudioTabButton
-                active={tab === "overlays"}
-                onClick={() => setTab("overlays")}
-                icon={<Layers className="h-4 w-4" />}
-                label="Overlays"
-                count={room.liveOverlays.length}
-              />
-              <StudioTabButton
-                active={tab === "cohosts"}
-                onClick={() => setTab("cohosts")}
-                icon={<UserPlus className="h-4 w-4" />}
-                label="Co-hosts"
-                count={cohosts.length}
-              />
-              <StudioTabButton
-                active={tab === "materials"}
-                onClick={() => setTab("materials")}
-                icon={<Paperclip className="h-4 w-4" />}
-                label="Materials"
-                count={room.materials.length}
-              />
-              <StudioTabButton
-                active={tab === "announcements"}
-                onClick={() => setTab("announcements")}
-                icon={<Bell className="h-4 w-4" />}
-                label="Announcements"
-                count={room.announcements.length}
-              />
-              <StudioTabButton
-                active={tab === "info"}
-                onClick={() => setTab("info")}
-                icon={<Info className="h-4 w-4" />}
-                label="Class info"
-              />
-            </div>
-
-            <div className="p-4 sm:p-5">
-              {tab === "broadcast" && (
-                <BroadcastTab
-                  media={media}
-                  whip={whip}
-                  cls={cls}
-                  isLive={isLive}
-                  actualFps={compositor.actualFps}
-                  onSaveBroadcast={saveBroadcast}
+            <div className="min-h-[440px] flex-1 overflow-y-auto p-3 lg:min-h-0">
+              {panel === "chat" && (
+                <ChatPanel
+                  className="h-full min-h-[400px]"
+                  messages={room.chat}
+                  you={room.you}
+                  connection={room.connection}
+                  enabled={!!cls.chat_enabled && status !== "ended"}
+                  disabledReason={status === "ended" ? "This class has ended." : "You have turned chat off."}
+                  onSend={(body) => room.send("chat", body)}
+                  onDelete={room.removeMessage}
                 />
               )}
-
-              {tab === "overlays" && (
+              {panel === "qa" && (
+                <QaPanel
+                  className="h-full min-h-[400px]"
+                  questions={room.questions}
+                  you={room.you}
+                  enabled={!!cls.qa_enabled && status !== "ended"}
+                  disabledReason={status === "ended" ? "This class has ended." : "You have turned Q&A off."}
+                  onAsk={(body) => room.send("question", body)}
+                  onAnswer={room.answerQuestion}
+                  onPin={room.togglePin}
+                  onDelete={room.removeMessage}
+                />
+              )}
+              {panel === "people" && (
+                <ParticipantsPanel
+                  className="h-full min-h-[400px]"
+                  presence={room.presence}
+                  you={room.you}
+                  collapseAfter={0}
+                />
+              )}
+              {panel === "brand" && (
                 <OverlayManager
                   overlays={room.overlays}
                   canManage={!!room.you?.moderator}
@@ -931,19 +884,13 @@ export default function HostStudioPage() {
                   onRemove={room.removeOverlay}
                 />
               )}
-
-              {tab === "cohosts" && (
+              {panel === "guests" && (
                 <div className="space-y-5">
                   <CohostLinks classId={cls.id} />
-                  <ConnectedCohosts
-                    peers={cohosts}
-                    peerStates={rtc.peerStates}
-                    relayAvailable={rtc.relayAvailable}
-                  />
+                  <ConnectedCohosts peers={cohosts} peerStates={rtc.peerStates} relayAvailable={rtc.relayAvailable} />
                 </div>
               )}
-
-              {tab === "materials" && (
+              {panel === "files" && (
                 <MaterialsPanel
                   materials={room.materials}
                   canManage
@@ -951,8 +898,7 @@ export default function HostStudioPage() {
                   onRemove={room.removeMaterial}
                 />
               )}
-
-              {tab === "announcements" && (
+              {panel === "notices" && (
                 <AnnouncementsPanel
                   announcements={room.announcements}
                   canManage
@@ -960,12 +906,100 @@ export default function HostStudioPage() {
                   onRemove={room.removeAnnouncement}
                 />
               )}
-
-              {tab === "info" && <InfoTab cls={cls} status={status} startedAt={startedAt} />}
             </div>
-          </section>
-        </div>
+          </aside>
+        )}
+
+        {/* ── Panel rail ─────────────────────────────────────────────────── */}
+        <nav
+          aria-label="Studio panels"
+          className="order-2 flex flex-shrink-0 gap-1 overflow-x-auto border-t border-slate-200 bg-white p-1.5 lg:order-3 lg:w-[76px] lg:flex-col lg:overflow-x-visible lg:border-l lg:border-t-0"
+        >
+          {PANELS.map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              onClick={() => togglePanel(item.id)}
+              aria-pressed={panel === item.id}
+              className={`relative flex min-w-[64px] flex-col items-center gap-1 rounded-xl px-1.5 py-2 text-[10px] font-semibold transition-colors ${
+                panel === item.id ? "bg-blue-50 text-blue-700" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+              }`}
+            >
+              {item.icon}
+              {item.label}
+              {!!panelBadges[item.id] && (
+                <span className="absolute right-1.5 top-1 min-w-[16px] rounded-full bg-slate-900 px-1 text-[9px] font-bold leading-4 text-white">
+                  {panelBadges[item.id]}
+                </span>
+              )}
+            </button>
+          ))}
+        </nav>
       </div>
+
+      {settingsOpen && (
+        <StudioDialog title="Studio settings" onClose={() => setSettingsOpen(false)}>
+          <div className="mb-4 flex gap-1 rounded-xl bg-slate-100 p-1">
+            {(["broadcast", "class"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSettingsTab(key)}
+                className={`flex-1 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors ${
+                  settingsTab === key ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                }`}
+              >
+                {key === "broadcast" ? "Camera, mic & output" : "Class"}
+              </button>
+            ))}
+          </div>
+
+          {settingsTab === "broadcast" ? (
+            <BroadcastTab
+              media={media}
+              whip={whip}
+              cls={cls}
+              isLive={isLive}
+              actualFps={compositor.actualFps}
+              onSaveBroadcast={saveBroadcast}
+            />
+          ) : (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <LinkField label="Student link (subscribers)" value={publicLink} />
+                <LinkField label="Guest link (anyone with the URL)" value={guestLink} />
+              </div>
+              <div className="space-y-1 rounded-2xl border border-slate-200 px-3 py-2">
+                <Toggle
+                  label="Live chat"
+                  hint="Students can send messages"
+                  checked={!!cls.chat_enabled}
+                  onChange={(v) => toggleSetting("chat_enabled", v)}
+                />
+                <Toggle
+                  label="Questions & answers"
+                  hint="Students can ask questions you answer"
+                  checked={!!cls.qa_enabled}
+                  onChange={(v) => toggleSetting("qa_enabled", v)}
+                />
+                <Toggle
+                  label="Recording"
+                  hint="Save the class so students can rewatch it"
+                  checked={!!cls.recording_enabled}
+                  onChange={(v) => toggleSetting("recording_enabled", v)}
+                />
+                <Toggle
+                  label="Name plates"
+                  hint="Draw each person's name on their tile"
+                  checked={!!cls.show_name_plates}
+                  onChange={(v) => void saveBroadcast({ show_name_plates: v })}
+                />
+              </div>
+              <InfoTab cls={cls} status={status} startedAt={startedAt} />
+            </div>
+          )}
+        </StudioDialog>
+      )}
 
       {confirmEnd && (
         <ConfirmDialog
@@ -980,7 +1014,94 @@ export default function HostStudioPage() {
   )
 }
 
-/* ── broadcast tab ──────────────────────────────────────────────────────── */
+/** The rail on the right, in the order a host reaches for them during a class. */
+const PANELS: { id: StudioPanel; title: string; label: string; icon: React.ReactNode }[] = [
+  { id: "chat", title: "Live chat", label: "Chat", icon: <MessageSquare className="h-[18px] w-[18px]" /> },
+  { id: "qa", title: "Questions", label: "Q&A", icon: <HelpCircle className="h-[18px] w-[18px]" /> },
+  { id: "people", title: "People", label: "People", icon: <Users className="h-[18px] w-[18px]" /> },
+  { id: "brand", title: "Overlays & branding", label: "Brand", icon: <Layers className="h-[18px] w-[18px]" /> },
+  { id: "guests", title: "Guests & co-hosts", label: "Guests", icon: <UserPlus className="h-[18px] w-[18px]" /> },
+  { id: "files", title: "Class materials", label: "Files", icon: <Paperclip className="h-[18px] w-[18px]" /> },
+  { id: "notices", title: "Announcements", label: "Notices", icon: <Bell className="h-[18px] w-[18px]" /> },
+]
+
+/** A round button in the studio's control row: icon above, label below. */
+function StudioButton({
+  onClick,
+  icon,
+  label,
+  active,
+  tone = "blue",
+  disabled,
+}: {
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+  active?: boolean
+  tone?: "blue" | "rose"
+  disabled?: boolean
+}) {
+  const on = tone === "rose" ? "bg-rose-600 text-white ring-rose-600" : "bg-blue-600 text-white ring-blue-600"
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      aria-pressed={active}
+      className="flex w-16 flex-col items-center gap-1 rounded-xl py-1 text-[11px] font-semibold text-slate-600 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      <span
+        className={`flex h-11 w-11 items-center justify-center rounded-full shadow-sm ring-1 transition-colors ${
+          active ? on : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"
+        }`}
+      >
+        {icon}
+      </span>
+      {label}
+    </button>
+  )
+}
+
+/** A modal over the studio. Escape and the backdrop both close it. */
+function StudioDialog({
+  title,
+  onClose,
+  children,
+}: {
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [onClose])
+
+  return (
+    <div
+      className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto bg-slate-950/50 p-3 backdrop-blur-sm sm:items-center sm:p-6"
+      onMouseDown={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <div role="dialog" aria-modal="true" aria-label={title} className="w-full max-w-4xl rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3.5">
+          <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close settings"
+            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="max-h-[78vh] overflow-y-auto p-5">{children}</div>
+      </div>
+    </div>
+  )
+}
 
 function BroadcastTab({
   media,
@@ -1365,112 +1486,8 @@ function RecordingBadge({ recorder }: { recorder: StudioRecorder }) {
   )
 }
 
-function ControlButton({
-  onClick,
-  icon,
-  label,
-  disabled,
-  active,
-  activeTone = "rose",
-  title,
-}: {
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  disabled?: boolean
-  active?: boolean
-  activeTone?: "rose" | "blue"
-  title?: string
-}) {
-  const activeClass =
-    activeTone === "blue"
-      ? "bg-blue-600 border-blue-500 text-white"
-      : "bg-rose-500/20 border-rose-500/40 text-rose-300"
 
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={title ?? label}
-      aria-label={label}
-      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-        active ? activeClass : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
-      }`}
-    >
-      {icon}
-      <span className="hidden sm:inline">{label}</span>
-    </button>
-  )
-}
 
-function StudioTabButton({
-  active,
-  onClick,
-  icon,
-  label,
-  count,
-}: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  count?: number
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`flex items-center gap-2 whitespace-nowrap border-b-2 px-3.5 py-3 text-xs font-bold transition-colors sm:px-4 ${
-        active ? "border-blue-600 text-blue-600" : "border-transparent text-slate-500 hover:text-slate-900"
-      }`}
-    >
-      {icon}
-      {label}
-      {count !== undefined && count > 0 && (
-        <span className="rounded-full bg-slate-200 px-1.5 text-[10px] text-slate-700">{count}</span>
-      )}
-    </button>
-  )
-}
-
-function RailButton({
-  active,
-  onClick,
-  icon,
-  label,
-  badge,
-}: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
-  badge?: number
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`flex items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-bold transition-colors ${
-        active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
-      }`}
-    >
-      {icon}
-      {label}
-      {badge !== undefined && (
-        <span
-          className={`rounded-full px-1.5 text-[10px] ${
-            active ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
-          }`}
-        >
-          {badge}
-        </span>
-      )}
-    </button>
-  )
-}
 
 function Metric({
   label,

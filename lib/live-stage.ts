@@ -76,13 +76,48 @@ export const OVERLAY_ANCHORS: OverlayAnchor[] = [
 /** Gutter between tiles, as a fraction of the canvas width. */
 const GUTTER = 0.008
 
+/** Cameras and screens are 16:9; every tile is too, so nothing gets cropped. */
+const ASPECT = 16 / 9
+
 export interface LayoutInput {
   layout: StageLayout
   /** Sources on the programme, in the producer's order. */
   sources: Pick<StageSource, "id" | "kind" | "label">[]
+  /** The featured source: the large one in Solo, Leader, Sidebar and PiP. */
   spotlight: string | null
   width: number
   height: number
+}
+
+type Source = Pick<StageSource, "id" | "kind" | "label">
+
+/** The layouts a producer can pick, in the order the studio shows them. */
+export const PICKABLE_LAYOUTS: StageLayout[] = ["auto", "solo", "grid", "spotlight", "sidebar", "screen", "pip"]
+
+/** How many sources each layout draws; the rest stay on stage but unseen. */
+const LAYOUT_CAPACITY: Record<StageLayout, number> = {
+  auto: 9,
+  solo: 1,
+  split: 9,
+  grid: 9,
+  spotlight: 7,
+  sidebar: 5,
+  screen: 5,
+  pip: 4,
+}
+
+/**
+ * What "auto" means, which is: do what a person would have chosen.
+ *
+ * A shared screen always wins, because someone sharing a screen is showing
+ * something and shrinking it into a grid cell defeats the purpose. After that
+ * it is just headcount.
+ */
+export function resolveLayout(layout: StageLayout, sources: Pick<StageSource, "kind">[]): StageLayout {
+  if (layout === "split") return "grid"
+  if (layout !== "auto") return layout
+  if (sources.some((s) => s.kind === "screen")) return sources.length > 1 ? "screen" : "solo"
+  return sources.length <= 1 ? "solo" : "grid"
 }
 
 /**
@@ -93,6 +128,12 @@ export interface LayoutInput {
  * target over each tile) and by the hit test that decides which tile a
  * producer just clicked on. Three implementations of "where is the second
  * camera" would disagree the first time a layout gained a gutter.
+ *
+ * Every tile is 16:9. The first version stretched tiles to fill the frame —
+ * two halves of a 16:9 canvas, a hero strip twice as wide as it was tall — and
+ * cover-cropping a webcam into those shapes cut off foreheads and shoulders.
+ * Now the tiles keep the camera's shape and the leftover space is backdrop,
+ * the way StreamYard and every broadcast switcher does it.
  */
 export function computeStageLayout({
   layout,
@@ -104,74 +145,48 @@ export function computeStageLayout({
   const live = sources.filter((s) => s.id)
   if (!live.length) return []
 
-  const gutter = Math.round(width * GUTTER)
-  const resolved = layout === "auto" ? autoLayout(live) : layout
+  const resolved = resolveLayout(layout, live)
+  const gutter = Math.max(2, Math.round(width * GUTTER))
 
-  const tile = (
-    source: Pick<StageSource, "id" | "kind" | "label">,
-    rect: Rect,
-    scale: StageTile["scale"] = "large",
-  ): StageTile => ({ ...rect, id: source.id, kind: source.kind, label: source.label, scale })
+  // The featured source leads, so "feature" means the same thing in every
+  // layout: in Group it moves to the first seat, elsewhere it is the big one.
+  const featured =
+    resolved === "screen"
+      ? live.find((s) => s.id === spotlight && s.kind === "screen") ?? live.find((s) => s.kind === "screen") ?? live[0]
+      : live.find((s) => s.id === spotlight) ?? live[0]
+  const ordered = [featured, ...live.filter((s) => s.id !== featured.id)].slice(0, LAYOUT_CAPACITY[resolved])
+  const [hero, ...rest] = ordered
+
+  const tile = (source: Source, rect: Rect, scale: StageTile["scale"] = "large"): StageTile => ({
+    x: Math.round(rect.x),
+    y: Math.round(rect.y),
+    w: Math.round(rect.w),
+    h: Math.round(rect.h),
+    id: source.id,
+    kind: source.kind,
+    label: source.label,
+    scale,
+  })
+
+  if (resolved === "solo" || !rest.length) {
+    return [tile(hero, { x: 0, y: 0, w: width, h: height })]
+  }
+
+  // Everything but Solo and PiP sits inside a margin, so the tiles read as
+  // tiles on a backdrop rather than as a frame with lines through it.
+  const area: Rect = { x: gutter, y: gutter, w: width - gutter * 2, h: height - gutter * 2 }
 
   switch (resolved) {
-    case "solo":
-      return [tile(live[0], { x: 0, y: 0, w: width, h: height })]
-
     case "pip": {
-      // Picture-in-picture is the one layout where the small tile overlaps the
-      // big one rather than sharing space with it, so it is not a grid case.
-      const inset = Math.round(width * 0.02)
-      const pipW = Math.round(width * 0.24)
-      const pipH = Math.round((pipW * height) / width)
-      const out = [tile(live[0], { x: 0, y: 0, w: width, h: height })]
-      if (live[1]) {
-        out.push(
-          tile(
-            live[1],
-            { x: width - pipW - inset, y: height - pipH - inset, w: pipW, h: pipH },
-            "small",
-          ),
-        )
-      }
-      return out
-    }
-
-    case "split": {
-      const half = Math.floor((width - gutter) / 2)
-      return live
-        .slice(0, 2)
-        .map((s, i) => tile(s, { x: i * (half + gutter), y: 0, w: half, h: height }))
-    }
-
-    case "sidebar":
-      return sidebar(live, width, height, gutter, live[0]?.id ?? null, tile)
-
-    case "screen": {
-      // The shared screen is the point of this layout, so it takes the large
-      // pane whether or not the producer happened to order it first.
-      const screen = live.find((s) => s.kind === "screen") ?? live[0]
-      return sidebar(live, width, height, gutter, screen.id, tile)
-    }
-
-    case "spotlight": {
-      const hero = live.find((s) => s.id === spotlight) ?? live[0]
-      const rest = live.filter((s) => s.id !== hero.id)
-      if (!rest.length) return [tile(hero, { x: 0, y: 0, w: width, h: height })]
-
-      // A strip along the bottom rather than a sidebar: a spotlit speaker
-      // should keep a 16:9 frame, and taking width away from them to make room
-      // for thumbnails is what makes single-speaker layouts look cramped.
-      const stripH = Math.round(height * 0.2)
-      const heroH = height - stripH - gutter
-      const out = [tile(hero, { x: 0, y: 0, w: width, h: heroH })]
-
-      const count = Math.min(rest.length, 6)
-      const stripW = Math.floor((width - gutter * (count - 1)) / count)
-      rest.slice(0, count).forEach((s, i) => {
+      const inset = Math.round(width * 0.025)
+      const pipW = Math.round(width * 0.2)
+      const pipH = Math.round(pipW / ASPECT)
+      const out = [tile(hero, { x: 0, y: 0, w: width, h: height })]
+      rest.forEach((s, i) => {
         out.push(
           tile(
             s,
-            { x: i * (stripW + gutter), y: heroH + gutter, w: stripW, h: stripH },
+            { x: width - inset - pipW - i * (pipW + gutter * 2), y: height - inset - pipH, w: pipW, h: pipH },
             "small",
           ),
         )
@@ -179,80 +194,105 @@ export function computeStageLayout({
       return out
     }
 
+    case "spotlight": {
+      // One large, the rest in a row underneath: a featured speaker keeps a
+      // full 16:9 frame instead of losing width to a column of thumbnails.
+      let stripH = area.h * 0.2
+      let stripW = stripH * ASPECT
+      const rowW = rest.length * stripW + (rest.length - 1) * gutter
+      if (rowW > area.w) {
+        stripW = (area.w - (rest.length - 1) * gutter) / rest.length
+        stripH = stripW / ASPECT
+      }
+      const heroBox = fit(0, 0, area.w, area.h - stripH - gutter)
+      const blockH = heroBox.h + gutter + stripH
+      const top = area.y + (area.h - blockH) / 2
+
+      const out = [tile(hero, { x: area.x + (area.w - heroBox.w) / 2, y: top, w: heroBox.w, h: heroBox.h })]
+      const rowX = area.x + (area.w - (rest.length * stripW + (rest.length - 1) * gutter)) / 2
+      rest.forEach((s, i) => {
+        out.push(tile(s, { x: rowX + i * (stripW + gutter), y: top + heroBox.h + gutter, w: stripW, h: stripH }, "small"))
+      })
+      return out
+    }
+
+    case "sidebar":
+    case "screen": {
+      // One large, the rest stacked beside it. Used for "screen" with the
+      // shared screen as the large one, which is the classroom layout: the
+      // slide big, the teacher's face in the corner of the eye.
+      let colW = area.w * 0.22
+      let colH = colW / ASPECT
+      const stackH = rest.length * colH + (rest.length - 1) * gutter
+      if (stackH > area.h) {
+        colH = (area.h - (rest.length - 1) * gutter) / rest.length
+        colW = colH * ASPECT
+      }
+      const heroBox = fit(0, 0, area.w - colW - gutter, area.h)
+      const blockW = heroBox.w + gutter + colW
+      const left = area.x + (area.w - blockW) / 2
+
+      const out = [tile(hero, { x: left, y: area.y + (area.h - heroBox.h) / 2, w: heroBox.w, h: heroBox.h })]
+      const colTop = area.y + (area.h - (rest.length * colH + (rest.length - 1) * gutter)) / 2
+      rest.forEach((s, i) => {
+        out.push(tile(s, { x: left + heroBox.w + gutter, y: colTop + i * (colH + gutter), w: colW, h: colH }, "small"))
+      })
+      return out
+    }
+
     case "grid":
     default:
-      return grid(live, width, height, gutter, tile)
+      return grid(ordered, area, gutter).map(({ source, rect, small }) => tile(source, rect, small ? "small" : "large"))
   }
 }
 
+/** Largest 16:9 box that fits in w × h, at the given origin. */
+function fit(x: number, y: number, w: number, h: number): Rect {
+  let fw = w
+  let fh = w / ASPECT
+  if (fh > h) {
+    fh = h
+    fw = h * ASPECT
+  }
+  return { x, y, w: Math.max(0, fw), h: Math.max(0, fh) }
+}
+
 /**
- * What "auto" means, which is: do what a person would have chosen.
+ * Equal 16:9 tiles, as large as they can be.
  *
- * A shared screen always wins, because someone sharing a screen is showing
- * something and shrinking it into a grid cell defeats the purpose. After that
- * it is just headcount.
+ * Tries every column count and keeps the one with the biggest tile: two people
+ * sit side by side, three go two-and-one with the one centred, five go
+ * three-and-two. A short last row is centred rather than left with a hole on
+ * the right, which is what makes a three-person grid look like a bug.
  */
-function autoLayout(sources: Pick<StageSource, "id" | "kind">[]): StageLayout {
-  if (sources.some((s) => s.kind === "screen")) return "screen"
-  if (sources.length <= 1) return "solo"
-  if (sources.length === 2) return "split"
-  return "grid"
-}
-
-function sidebar(
-  live: Pick<StageSource, "id" | "kind" | "label">[],
-  width: number,
-  height: number,
-  gutter: number,
-  heroId: string | null,
-  tile: (s: Pick<StageSource, "id" | "kind" | "label">, r: Rect, scale?: StageTile["scale"]) => StageTile,
-): StageTile[] {
-  const hero = live.find((s) => s.id === heroId) ?? live[0]
-  const rest = live.filter((s) => s.id !== hero.id)
-  if (!rest.length) return [tile(hero, { x: 0, y: 0, w: width, h: height })]
-
-  const mainW = Math.round(width * 0.76) - gutter
-  const railW = width - mainW - gutter
-  const count = Math.min(rest.length, 4)
-  const railH = Math.floor((height - gutter * (count - 1)) / count)
-
-  const out = [tile(hero, { x: 0, y: 0, w: mainW, h: height })]
-  rest.slice(0, count).forEach((s, i) => {
-    out.push(
-      tile(s, { x: mainW + gutter, y: i * (railH + gutter), w: railW, h: railH }, "small"),
-    )
-  })
-  return out
-}
-
 function grid(
-  live: Pick<StageSource, "id" | "kind" | "label">[],
-  width: number,
-  height: number,
+  sources: Source[],
+  area: Rect,
   gutter: number,
-  tile: (s: Pick<StageSource, "id" | "kind" | "label">, r: Rect, scale?: StageTile["scale"]) => StageTile,
-): StageTile[] {
-  const count = Math.min(live.length, 9)
-  const cols = count <= 1 ? 1 : count <= 4 ? 2 : 3
-  const rowCount = Math.ceil(count / cols)
+): { source: Source; rect: Rect; small: boolean }[] {
+  const n = sources.length
+  let best = { cols: 1, w: 0, h: 0 }
+  for (let cols = 1; cols <= n; cols++) {
+    const rows = Math.ceil(n / cols)
+    const w = Math.min((area.w - gutter * (cols - 1)) / cols, ((area.h - gutter * (rows - 1)) / rows) * ASPECT)
+    if (w > best.w) best = { cols, w, h: w / ASPECT }
+  }
 
-  const cellW = Math.floor((width - gutter * (cols - 1)) / cols)
-  const cellH = Math.floor((height - gutter * (rowCount - 1)) / rowCount)
+  const rows = Math.ceil(n / best.cols)
+  const blockH = rows * best.h + (rows - 1) * gutter
+  const top = area.y + (area.h - blockH) / 2
 
-  return live.slice(0, count).map((s, i) => {
-    const row = Math.floor(i / cols)
-    const col = i % cols
-    // Centre a short last row rather than leaving a hole on the right, which
-    // is what makes a three-person grid look like a bug.
-    const inRow = Math.min(cols, count - row * cols)
-    const rowWidth = inRow * cellW + (inRow - 1) * gutter
-    const offset = Math.round((width - rowWidth) / 2)
-
-    return tile(
-      s,
-      { x: offset + col * (cellW + gutter), y: row * (cellH + gutter), w: cellW, h: cellH },
-      count > 4 ? "small" : "large",
-    )
+  return sources.map((source, i) => {
+    const row = Math.floor(i / best.cols)
+    const col = i % best.cols
+    const inRow = Math.min(best.cols, n - row * best.cols)
+    const rowW = inRow * best.w + (inRow - 1) * gutter
+    const left = area.x + (area.w - rowW) / 2
+    return {
+      source,
+      rect: { x: left + col * (best.w + gutter), y: top + row * (best.h + gutter), w: best.w, h: best.h },
+      small: n > 4,
+    }
   })
 }
 

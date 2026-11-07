@@ -351,10 +351,11 @@ function PrimaryCta({ status, onApply }: { status: AffiliateStatus; onApply: () 
       </button>
     )
   }
+  // Opens the affiliate request form (AffiliateRequestDialog).
   return (
     <button type="button" onClick={onApply} disabled={status === "loading"} className={PRIMARY_CLASS}>
       <Link2 className="size-5" />
-      Get My Referral Link
+      Apply for Referral
     </button>
   )
 }
