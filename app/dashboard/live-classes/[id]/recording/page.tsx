@@ -50,7 +50,13 @@ interface LiveClass {
  */
 interface RecordingSegment {
   id: number
+  /**
+   * A signed playback link from the API. The media bucket is private, so it
+   * expires (after hours); `handleVideoError` fetches fresh ones.
+   */
   url: string
+  /** The same file, served as an attachment. */
+  download_url?: string
   mime_type: string
   duration_seconds: number | null
   size_bytes: number | null
@@ -117,6 +123,10 @@ export default function StudentRecordingPlayerPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [showControls, setShowControls] = useState(true)
   const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  // Where to pick up after swapping in a fresh playback link, and whether one
+  // has already been tried for the current failure.
+  const resumeAtRef = useRef<number | null>(null)
+  const relinkedRef = useRef(false)
 
   const fetchRecording = async () => {
     const res = await dmApi.get<RecordingResponse>(`/live-classes/${id}/recording`)
@@ -169,8 +179,12 @@ export default function StudentRecordingPlayerPage() {
   const handleLoadedMetadata = () => {
     const video = videoRef.current
     if (!video) return
+    relinkedRef.current = false
+    const resumeAt = resumeAtRef.current ?? 0
+    resumeAtRef.current = null
     if (Number.isFinite(video.duration)) {
       setDuration(video.duration)
+      if (resumeAt) video.currentTime = resumeAt
       return
     }
     // A file written by the browser's recorder (WebM especially) can arrive
@@ -180,11 +194,23 @@ export default function StudentRecordingPlayerPage() {
     setDuration(segments[part]?.duration_seconds ?? lc?.recording_duration ?? 0)
     const settle = () => {
       video.removeEventListener("timeupdate", settle)
-      video.currentTime = 0
+      video.currentTime = resumeAt
       if (Number.isFinite(video.duration)) setDuration(video.duration)
     }
     video.addEventListener("timeupdate", settle)
     video.currentTime = Number.MAX_SAFE_INTEGER
+  }
+
+  // Playback links expire. A tab left open past that gets an error on its next
+  // byte-range request: fetch fresh links once and carry on from the same
+  // spot. A second failure before the new link loads is a real one, and is
+  // left to the browser's own error state rather than retried in a loop.
+  const handleVideoError = () => {
+    const video = videoRef.current
+    if (!video || relinkedRef.current) return
+    relinkedRef.current = true
+    resumeAtRef.current = video.currentTime || null
+    fetchRecording()
   }
 
   const selectPart = (index: number, autoplay: boolean) => {
@@ -292,6 +318,9 @@ export default function StudentRecordingPlayerPage() {
 
   const current = segments[part] ?? null
   const videoUrl = current?.url ?? lc.recording_url
+  // Cross-origin, so the `download` attribute is ignored; the API's
+  // attachment link is what actually makes the browser save the file.
+  const downloadUrl = current?.download_url ?? videoUrl
   const downloadExt = current?.mime_type === "video/webm" ? "webm" : "mp4"
   const downloadSize = current ? current.size_bytes : lc.recording_size_bytes
 
@@ -346,6 +375,7 @@ export default function StudentRecordingPlayerPage() {
                 if (d && Number.isFinite(d)) setDuration(d)
               }}
               onEnded={handleEnded}
+              onError={handleVideoError}
               onClick={handlePlayPause}
               className="w-full h-full object-contain cursor-pointer"
               playsInline
@@ -500,11 +530,11 @@ export default function StudentRecordingPlayerPage() {
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h2 className="text-base font-bold text-slate-900">About this Class</h2>
-            {isRecordingReady && videoUrl && (
+            {isRecordingReady && downloadUrl && (
               <a
-                href={videoUrl}
+                href={downloadUrl}
                 download={`class-${lc.id}-recording${segments.length > 1 ? `-part-${part + 1}` : ""}.${downloadExt}`}
-                target="_blank"
+                target={current?.download_url ? undefined : "_blank"}
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold transition-all border border-slate-200"
               >
