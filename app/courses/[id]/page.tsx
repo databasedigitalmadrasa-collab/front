@@ -9,8 +9,12 @@ import { Badge } from "@/components/ui/badge"
 
 import { Metadata } from "next"
 
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const { id } = await Promise.resolve(params); // unwrapping params just in case future Next.js requires it
+// Next 15+ passes `params` as a Promise. Reading `params.id` without awaiting
+// it gives undefined, which made every course page say "Course Not Found".
+type CourseParams = { params: Promise<{ id: string }> }
+
+export async function generateMetadata({ params }: CourseParams): Promise<Metadata> {
+  const { id } = await params
   try {
     const res = await getCourse(id);
     const course = res.data;
@@ -30,10 +34,11 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   }
 }
 
-export default async function CoursePage({ params }: { params: { id: string } }) {
+export default async function CoursePage({ params }: CourseParams) {
+  const { id } = await params
   let course;
   try {
-    const res = await getCourse(params.id);
+    const res = await getCourse(id);
     course = res.data;
   } catch (e) {
     return (
