@@ -15,6 +15,7 @@
 
 import { useEffect, useRef } from "react"
 import {
+  FlipHorizontal2,
   Loader2,
   Mic,
   MicOff,
@@ -51,6 +52,8 @@ export interface BackstageProps {
   onToggleMute: (sourceId: string) => void
   /** Local sources only. */
   onToggleCamera?: (sourceId: string) => void
+  /** Flip a local camera for the broadcast. */
+  onToggleFlip?: (sourceId: string) => void
   onRemoveSource?: (sourceId: string) => void
   onAddCamera?: () => void
   onShareScreen?: () => void
@@ -71,6 +74,7 @@ export function Backstage({
   onFeature,
   onToggleMute,
   onToggleCamera,
+  onToggleFlip,
   onRemoveSource,
   onAddCamera,
   onShareScreen,
@@ -96,7 +100,13 @@ export function Backstage({
             }`}
           >
             <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-900">
-              <SourceVideo stream={source.stream} contain={source.kind === "screen"} />
+              {/* As this person sees it on the programme: a co-host's flip, or
+                  for their own camera, the flip and "Mirror my view" combined. */}
+              <SourceVideo
+                stream={source.stream}
+                contain={source.kind === "screen"}
+                mirrored={source.previewMirrored ?? !!source.mirrored}
+              />
 
               {!source.live && source.kind === "camera" && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
@@ -138,6 +148,19 @@ export function Backstage({
                       onClick={() => onToggleCamera(source.id)}
                     >
                       {source.live ? <Video className="h-3 w-3" /> : <VideoOff className="h-3 w-3" />}
+                    </ThumbIcon>
+                  )}
+                  {source.kind === "camera" && onToggleFlip && (
+                    <ThumbIcon
+                      title={
+                        source.mirrored
+                          ? "Flipped for students and the recording. Click to unflip"
+                          : "Flip this camera for students and the recording"
+                      }
+                      active={!!source.mirrored}
+                      onClick={() => onToggleFlip(source.id)}
+                    >
+                      <FlipHorizontal2 className="h-3 w-3" />
                     </ThumbIcon>
                   )}
                   {onRemoveSource && (
@@ -234,7 +257,7 @@ export function Backstage({
 }
 
 /** A live thumbnail of one source. Muted: audio is the mixer's business. */
-function SourceVideo({ stream, contain }: { stream: MediaStream; contain: boolean }) {
+function SourceVideo({ stream, contain, mirrored }: { stream: MediaStream; contain: boolean; mirrored?: boolean }) {
   const ref = useRef<HTMLVideoElement | null>(null)
   useEffect(() => {
     const el = ref.current
@@ -249,7 +272,7 @@ function SourceVideo({ stream, contain }: { stream: MediaStream; contain: boolea
       muted
       autoPlay
       playsInline
-      className={`h-full w-full ${contain ? "object-contain" : "object-cover"}`}
+      className={`h-full w-full ${contain ? "object-contain" : "object-cover"} ${mirrored ? "-scale-x-100" : ""}`}
     />
   )
 }
@@ -282,14 +305,27 @@ function CardIcon({
   )
 }
 
-function ThumbIcon({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
+function ThumbIcon({
+  title,
+  active,
+  onClick,
+  children,
+}: {
+  title: string
+  active?: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
       title={title}
       aria-label={title}
-      className="rounded-md bg-black/70 p-1 text-white backdrop-blur transition-colors hover:bg-black/90"
+      aria-pressed={active}
+      className={`rounded-md p-1 text-white backdrop-blur transition-colors ${
+        active ? "bg-blue-600 hover:bg-blue-700" : "bg-black/70 hover:bg-black/90"
+      }`}
     >
       {children}
     </button>

@@ -43,6 +43,11 @@ export interface DrawableSource {
   live: boolean
   /** The producer has silenced them. Shown, not implied. */
   muted: boolean
+  /**
+   * Draw the picture flipped left-to-right. Only the video: the name plate,
+   * badges and overlays stay readable.
+   */
+  mirrored?: boolean
 }
 
 export interface DrawStageOptions {
@@ -131,6 +136,14 @@ function drawTile(o: DrawStageOptions, tile: StageTile): void {
     // that costs nothing — unless it is a different shape altogether: a phone
     // held upright, cover-cropped into a 16:9 tile, shows a strip of chin.
     const mismatch = Math.abs(Math.log(video.videoWidth / video.videoHeight / (tile.w / tile.h)))
+    // Both fits centre the picture in the tile, so mirroring about the tile's
+    // vertical centre line flips it in place. Undone by the restore() below.
+    if (source?.mirrored) {
+      const cx = tile.x + tile.w / 2
+      ctx.translate(cx, 0)
+      ctx.scale(-1, 1)
+      ctx.translate(-cx, 0)
+    }
     if (tile.kind === "screen" || mismatch > 0.35) drawContain(ctx, video, tile)
     else drawCover(ctx, video, tile)
   } else {

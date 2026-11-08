@@ -14,6 +14,7 @@
 import { useState } from "react"
 import {
   Camera,
+  FlipHorizontal2,
   Loader2,
   Mic,
   MicOff,
@@ -110,6 +111,23 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
           </button>
         </div>
 
+        {/* Two different mirrors: this one only changes what you see. The
+            per-camera flip below changes what students and the recording see. */}
+        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={media.mirrorSelfView}
+            onChange={(e) => media.setMirrorSelfView(e.target.checked)}
+            className="mt-0.5 h-3.5 w-3.5 accent-blue-600"
+          />
+          <span className="min-w-0">
+            <span className="block text-[11px] font-bold text-slate-800">Mirror my view</span>
+            <span className="block text-[10px] leading-snug text-slate-500">
+              See yourself like in a mirror. Only you see this; students and the recording are unchanged.
+            </span>
+          </span>
+        </label>
+
         {!cameraSources.length && (
           <p className="rounded-xl bg-slate-50 px-3 py-3 text-[11px] text-slate-500">
             No camera is running. Start the studio to open one.
@@ -134,6 +152,22 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
                 }`}
               >
                 {source.enabled ? <Video className="h-3.5 w-3.5" /> : <VideoOff className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => media.toggleFlip(source.id)}
+                title={
+                  source.flipped
+                    ? "Flipped for students and the recording. Click to unflip"
+                    : "Flip this camera for students and the recording"
+                }
+                aria-pressed={source.flipped}
+                className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold transition-colors ${
+                  source.flipped ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                <FlipHorizontal2 className="h-3.5 w-3.5" />
+                {source.flipped ? "Flipped" : "Flip"}
               </button>
               <button
                 type="button"
@@ -176,7 +210,13 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
           </button>
         </div>
 
-        {!screenSources.length ? (
+        {!media.screenShareSupported ? (
+          <p className="rounded-xl bg-amber-50 px-3 py-3 text-[11px] leading-relaxed text-amber-900">
+            This device can&rsquo;t share its screen: phone browsers don&rsquo;t support it (Android at all;
+            iPhone and iPad from iOS&nbsp;27). Join from a computer in Chrome, Edge, Firefox or Safari to
+            share your screen.
+          </p>
+        ) : !screenSources.length ? (
           <p className="rounded-xl bg-slate-50 px-3 py-3 text-[11px] text-slate-500">
             A shared screen becomes another source you can put on air, letterboxed so nothing is
             cropped off the slide.

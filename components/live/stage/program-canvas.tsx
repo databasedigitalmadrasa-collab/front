@@ -6,8 +6,12 @@
  * This canvas is not a preview of the broadcast — it *is* the broadcast. The
  * same element `useStageCompositor` paints into is the one
  * `canvas.captureStream()` reads from, so what the host sees here is what
- * Cloudflare receives, frame for frame. There is no second render path that
- * could drift from it.
+ * Cloudflare receives, frame for frame.
+ *
+ * The one exception is "Mirror my view": then the compositor also paints a
+ * second canvas, identical except that the host's own camera is flipped, and
+ * that is laid over this one. The broadcast canvas underneath keeps running
+ * and is still what goes out; a tag in the corner says the view is mirrored.
  *
  * Over each tile sits a hover toolbar — feature, mute, take off stage — in
  * exactly the geometry the compositor used, because the layout is computed
@@ -21,6 +25,9 @@ import type { StageTile } from "@/lib/live-stage"
 
 export interface ProgramCanvasProps {
   canvasRef: (el: HTMLCanvasElement | null) => void
+  /** The host-only view; shown over the broadcast while `previewActive`. */
+  previewCanvasRef?: (el: HTMLCanvasElement | null) => void
+  previewActive?: boolean
   tiles: StageTile[]
   width: number
   height: number
@@ -41,6 +48,8 @@ export interface ProgramCanvasProps {
 
 export function ProgramCanvas({
   canvasRef,
+  previewCanvasRef,
+  previewActive = false,
   tiles,
   width,
   height,
@@ -70,6 +79,15 @@ export function ProgramCanvas({
       } ${className}`}
     >
       <canvas ref={canvasRef} width={width} height={height} className="h-full w-full" aria-label="Programme output" />
+      {previewCanvasRef && (
+        <canvas
+          ref={previewCanvasRef}
+          width={width}
+          height={height}
+          className={`absolute inset-0 h-full w-full ${previewActive ? "" : "hidden"}`}
+          aria-label="Your view of the programme, with your camera mirrored"
+        />
+      )}
 
       {!running && (
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950 px-6 text-center">
@@ -143,6 +161,14 @@ export function ProgramCanvas({
             Preview
           </span>
         ) : null}
+        {running && previewActive && (
+          <span
+            className="rounded-md bg-slate-900/80 px-2 py-0.5 text-[10px] font-bold text-slate-200 backdrop-blur"
+            title="Mirror my view is on: you see your camera mirrored. Students and the recording see it the other way round."
+          >
+            Your view: mirrored
+          </span>
+        )}
       </div>
 
       {dropping && (

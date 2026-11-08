@@ -182,6 +182,8 @@ export interface StageSource {
   label: string
   live: boolean
   selfMuted: boolean
+  /** The publisher flipped this camera for the broadcast. Absent from older studios. */
+  mirrored?: boolean
 }
 
 /** Someone who may publish, and what they are offering right now. */
