@@ -34,7 +34,7 @@ import {
   Filter,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { dmApi, getAdminToken } from "@/lib/dm-api"
+import { API_BASE_URL as DM_API_BASE_URL, dmApi, getAdminToken } from "@/lib/dm-api"
 
 interface PayoutRequest {
   id: number
