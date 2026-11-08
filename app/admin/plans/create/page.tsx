@@ -21,7 +21,9 @@ interface PlanForm {
   monthly_amount: string
   yearly_amount: string
   discounted_amount: string
-  subscription_type: "monthly" | "annual" | "both"
+  // Only these two: subscription_plan has CHECK (subscription_type IN ('monthly', 'annual')),
+  // so anything else (the old "both" option) failed the insert with a 500.
+  subscription_type: "monthly" | "annual"
   gst_tax: string
   is_tax_included: boolean
   is_active: boolean
@@ -40,7 +42,7 @@ export default function CreatePlanPage() {
     monthly_amount: "",
     yearly_amount: "",
     discounted_amount: "",
-    subscription_type: "both",
+    subscription_type: "annual",
     gst_tax: "18",
     is_tax_included: false,
     is_active: true,
@@ -253,7 +255,7 @@ export default function CreatePlanPage() {
                   <Label>Subscription Type</Label>
                   <Select
                     value={form.subscription_type}
-                    onValueChange={(value: "monthly" | "annual" | "both") =>
+                    onValueChange={(value: "monthly" | "annual") =>
                       setForm({ ...form, subscription_type: value })
                     }
                   >
@@ -263,7 +265,6 @@ export default function CreatePlanPage() {
                     <SelectContent>
                       <SelectItem value="monthly">Monthly Only</SelectItem>
                       <SelectItem value="annual">Annual Only</SelectItem>
-                      <SelectItem value="both">Both Available</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>

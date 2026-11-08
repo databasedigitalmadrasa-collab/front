@@ -60,7 +60,9 @@ interface Plan {
   yearly_amount: number
   discounted_amount?: number
   offer_title?: string
-  subscription_type: "monthly" | "annual" | "both"
+  // Only these two: subscription_plan has CHECK (subscription_type IN ('monthly', 'annual')),
+  // so anything else (the old "both" option) failed the insert with a 500.
+  subscription_type: "monthly" | "annual"
   gst_tax: number
   whats_included?: string[]
   start_date?: string
@@ -99,7 +101,7 @@ export default function ManagePlansPage() {
     discounted_amount: "",
     offer_title: "",
     currency: "INR",
-    subscription_type: "both" as "monthly" | "annual" | "both",
+    subscription_type: "annual" as "monthly" | "annual",
     gst_tax: "18",
     whats_included: [""],
     start_date: "",
@@ -301,7 +303,7 @@ export default function ManagePlansPage() {
       discounted_amount: "",
       offer_title: "",
       currency: "INR",
-      subscription_type: "both",
+      subscription_type: "annual",
       gst_tax: "18",
       whats_included: [""],
       start_date: "",
@@ -402,7 +404,7 @@ export default function ManagePlansPage() {
       plan.description.toLowerCase().includes(searchQuery.toLowerCase())
 
     const matchesType =
-      typeFilter === "all" || plan.subscription_type === typeFilter || plan.subscription_type === "both"
+      typeFilter === "all" || plan.subscription_type === typeFilter
 
     const matchesCurrency = currencyFilter === "all" || plan.currency === currencyFilter
 
@@ -511,7 +513,6 @@ export default function ManagePlansPage() {
               <SelectItem value="all">All Types</SelectItem>
               <SelectItem value="monthly">Monthly Only</SelectItem>
               <SelectItem value="annual">Annual Only</SelectItem>
-              <SelectItem value="both">Both Available</SelectItem>
             </SelectContent>
           </Select>
 
@@ -848,7 +849,7 @@ export default function ManagePlansPage() {
                 <Label htmlFor="subscription_type">Subscription Type</Label>
                 <Select
                   value={formData.subscription_type}
-                  onValueChange={(value: "monthly" | "annual" | "both") =>
+                  onValueChange={(value: "monthly" | "annual") =>
                     setFormData({ ...formData, subscription_type: value })
                   }
                 >
@@ -858,7 +859,6 @@ export default function ManagePlansPage() {
                   <SelectContent>
                     <SelectItem value="monthly">Monthly</SelectItem>
                     <SelectItem value="annual">Annual</SelectItem>
-                    <SelectItem value="both">Both</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
