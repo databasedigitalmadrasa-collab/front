@@ -69,7 +69,9 @@ export function formatDuration(seconds: number): string {
   return `${minutes}m`
 }
 
-export function getYouTubeVideoId(url: string): string | null {
+/** Null for no URL: a course's `preview_video_url` is optional (none of the live courses has one). */
+export function getYouTubeVideoId(url: string | null | undefined): string | null {
+  if (!url) return null
   const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/
   const match = url.match(regex)
   return match ? match[1] : null
