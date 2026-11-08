@@ -176,12 +176,15 @@ function GreenRoom({
       <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="grid md:grid-cols-2">
           <div className="relative aspect-video bg-slate-950 md:aspect-auto md:min-h-[300px]">
+            {/* As the audience will see it, flipped once more for "Mirror my view". */}
             <video
               ref={preview}
               autoPlay
               muted
               playsInline
-              className="h-full w-full object-cover"
+              className={`h-full w-full object-cover ${
+                !!camera?.flipped !== media.mirrorSelfView ? "-scale-x-100" : ""
+              }`}
             />
             {!camera && (
               <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
@@ -479,10 +482,19 @@ function JoinedStudio({
                 onClick={() => void media.startScreenShare()}
                 active={media.screenSharing}
                 activeTone="blue"
+                dimmed={!media.screenShareSupported}
                 icon={<MonitorUp className="h-4 w-4" />}
                 label={media.screenSharing ? "Sharing" : "Share screen"}
               />
             </div>
+            {/* Most guests on phones are on Android, where no browser can share
+                the screen. Say so where they are looking, not in a settings panel. */}
+            {!media.screenShareSupported && (
+              <p className="border-t border-slate-800 bg-slate-900 px-3 pb-3 text-[11px] leading-relaxed text-slate-400 sm:px-5">
+                Screen sharing isn&rsquo;t available on this device: phone browsers can&rsquo;t share their screen
+                (Android doesn&rsquo;t support it; iPhone needs iOS&nbsp;27+). Join from a computer to share your screen.
+              </p>
+            )}
           </div>
 
           <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-xs sm:p-5">
@@ -638,12 +650,15 @@ function ControlButton({
   onClick,
   active,
   activeTone = "rose",
+  dimmed,
   icon,
   label,
 }: {
   onClick: () => void
   active?: boolean
   activeTone?: "rose" | "blue"
+  /** Shown as unavailable but still tappable, so a tap explains why. */
+  dimmed?: boolean
   icon: React.ReactNode
   label: string
 }) {
@@ -654,7 +669,7 @@ function ControlButton({
       onClick={onClick}
       className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2.5 text-xs font-bold transition-colors ${
         active ? tone : "bg-slate-800 text-slate-200 hover:bg-slate-700"
-      }`}
+      } ${dimmed ? "opacity-50" : ""}`}
     >
       {icon}
       {label}

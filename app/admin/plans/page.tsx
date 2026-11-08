@@ -67,7 +67,7 @@ interface Plan {
   whats_included?: string[]
   start_date?: string
   end_date?: string
-  is_featured?: boolean
+  is_featured?: boolean | number | string
   badge_text?: string
   /** Referral commission in paise; null means the plan pays the flat rate. */
   commission_cents?: number | null
@@ -76,6 +76,46 @@ interface Plan {
 }
 
 const ITEMS_PER_PAGE = 10
+
+/*
+ * What the API sends is not what this page used to assume:
+ *   - whats_included is a JSON *string* ('["A","B"]'), or newline-separated
+ *     text in older rows, not an array. Treating it as one left the edit
+ *     form's list empty and made Update Plan throw on `.filter` before sending.
+ *   - is_featured comes back as the text "0.0" / "1.0", and "0.0" is truthy, so
+ *     `!!plan.is_featured` ticked "featured" on every plan opened for editing.
+ */
+function parseIncluded(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String)
+  if (typeof value !== "string" || value.trim() === "") return []
+  try {
+    const parsed = JSON.parse(value)
+    if (Array.isArray(parsed)) return parsed.map(String)
+  } catch {
+    /* not JSON: newline-separated points */
+  }
+  return value.split("\n").map((line) => line.trim()).filter(Boolean)
+}
+
+function isFeatured(value: unknown): boolean {
+  return Number(value) === 1 || value === true
+}
+
+/** A stored date as the `datetime-local` input wants it: local time, to the minute. */
+function toInputDateTime(value: string | null | undefined): string {
+  if (!value) return ""
+  const date = new Date(value.includes("T") ? value : value.replace(" ", "T"))
+  if (Number.isNaN(date.getTime())) return ""
+  const pad = (n: number) => String(n).padStart(2, "0")
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
+/** The input's local time as an absolute ISO time, so the offer timer ends at the same moment for every visitor. */
+function fromInputDateTime(value: string): string | null {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.toISOString()
+}
 
 export default function ManagePlansPage() {
   const { toast } = useToast()
@@ -124,7 +164,7 @@ export default function ManagePlansPage() {
     console.log("Fetch plans response:", response)
 
     if (response.success && response.data) {
-      setPlans(response.data.items || [])
+      setPlans((response.data.items || []).map((plan) => ({ ...plan, whats_included: parseIncluded(plan.whats_included) })))
     } else {
       toast({
         title: "Error",
@@ -181,6 +221,10 @@ export default function ManagePlansPage() {
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
       badge_text: formData.badge_text || undefined,
       commission_cents: commissionCents,
+      // The offer timer on the pricing card counts down to end_date. These
+      // inputs were never sent, so the timer could not be set from here.
+      start_date: fromInputDateTime(formData.start_date) ?? undefined,
+      end_date: fromInputDateTime(formData.end_date) ?? undefined,
     }
 
     console.log("Creating plan with payload:", payload)
@@ -223,20 +267,24 @@ export default function ManagePlansPage() {
     setIsSubmitting(true)
     const token = getAuthToken()
 
+    // An emptied optional field is sent as null so the edit actually clears it;
+    // `undefined` is dropped from the JSON and left the old value in place.
     const payload = {
       title: formData.title,
       description: formData.description,
       monthly_amount: Number.parseFloat(formData.monthly_amount),
       yearly_amount: Number.parseFloat(formData.yearly_amount),
-      discounted_amount: formData.discounted_amount ? Number.parseFloat(formData.discounted_amount) : undefined,
-      offer_title: formData.offer_title || undefined,
+      discounted_amount: formData.discounted_amount ? Number.parseFloat(formData.discounted_amount) : null,
+      offer_title: formData.offer_title || null,
       is_featured: formData.is_featured,
       currency: formData.currency,
       subscription_type: formData.subscription_type,
       gst_tax: Number.parseFloat(formData.gst_tax),
       whats_included: formData.whats_included.filter((item) => item.trim() !== ""),
-      badge_text: formData.badge_text || undefined,
+      badge_text: formData.badge_text || null,
       commission_cents: commissionCents,
+      start_date: fromInputDateTime(formData.start_date),
+      end_date: fromInputDateTime(formData.end_date),
     }
 
     console.log("Updating plan with payload:", payload)
@@ -345,20 +393,21 @@ export default function ManagePlansPage() {
 
   const openEditDialog = (plan: Plan) => {
     setSelectedPlan(plan)
+    const included = parseIncluded(plan.whats_included)
     setFormData({
-      title: plan.title,
-      description: plan.description,
-      monthly_amount: plan.monthly_amount.toString(),
-      yearly_amount: plan.yearly_amount.toString(),
-      discounted_amount: plan.discounted_amount?.toString() || "",
+      title: plan.title ?? "",
+      description: plan.description ?? "",
+      monthly_amount: plan.monthly_amount != null ? String(plan.monthly_amount) : "",
+      yearly_amount: plan.yearly_amount != null ? String(plan.yearly_amount) : "",
+      discounted_amount: plan.discounted_amount != null ? String(plan.discounted_amount) : "",
       offer_title: plan.offer_title || "",
-      currency: plan.currency,
-      subscription_type: plan.subscription_type,
-      gst_tax: plan.gst_tax.toString(),
-      whats_included: plan.whats_included && plan.whats_included.length > 0 ? plan.whats_included : [""],
-      start_date: plan.start_date || "",
-      end_date: plan.end_date || "",
-      is_featured: !!plan.is_featured,
+      currency: plan.currency || "INR",
+      subscription_type: plan.subscription_type === "monthly" ? "monthly" : "annual",
+      gst_tax: plan.gst_tax != null ? String(plan.gst_tax) : "18",
+      whats_included: included.length > 0 ? included : [""],
+      start_date: toInputDateTime(plan.start_date),
+      end_date: toInputDateTime(plan.end_date),
+      is_featured: isFeatured(plan.is_featured),
       badge_text: plan.badge_text || "",
       commission_rupees: plan.commission_cents != null ? String(plan.commission_cents / 100) : "",
     })

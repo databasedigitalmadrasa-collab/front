@@ -45,6 +45,12 @@ export interface LocalSource {
   deviceId: string | null
   /** False while the track is paused — camera off, but the tile keeps its seat. */
   enabled: boolean
+  /**
+   * Flipped left-to-right for the broadcast: what students and the recording
+   * see. For a camera that delivers a mirrored picture, or a host who wants
+   * it. Remembered per physical camera (see `readFlip`).
+   */
+  flipped: boolean
 }
 
 export interface MediaSources {
@@ -60,6 +66,8 @@ export interface MediaSources {
   micMuted: boolean
   audioLevel: number
   screenSharing: boolean
+  /** False where the browser cannot capture the screen at all (Android, older iOS). */
+  screenShareSupported: boolean
 
   /** Open the microphone and the default camera. Safe to call twice. */
   start: () => Promise<boolean>
@@ -67,6 +75,14 @@ export interface MediaSources {
   replaceDevice: (sourceId: string, deviceId: string) => Promise<void>
   removeSource: (sourceId: string) => void
   toggleSource: (sourceId: string) => void
+  /** Flip a camera for the broadcast. */
+  toggleFlip: (sourceId: string) => void
+  /**
+   * Show this person their own camera mirrored, the way a mirror (or Zoom's
+   * self view) does, without changing what anyone else sees. Per browser.
+   */
+  mirrorSelfView: boolean
+  setMirrorSelfView: (on: boolean) => void
   startScreenShare: () => Promise<string | null>
   selectMic: (deviceId: string) => Promise<void>
   toggleMic: () => void
@@ -98,8 +114,79 @@ function sourcePrefix(): string {
   }
 }
 
+/*
+ * Mirror settings, kept in localStorage so a teacher sets them once: the
+ * broadcast flip per physical camera (a document camera that needs flipping
+ * always does), "mirror my view" per browser. Storage can be unavailable
+ * (Safari private mode throws), in which case they simply do not persist.
+ */
+const FLIP_KEY = "dm_live_flip:"
+const MIRROR_VIEW_KEY = "dm_live_mirror_self_view"
+
+function readFlag(key: string): boolean {
+  try {
+    return typeof window !== "undefined" && window.localStorage.getItem(key) === "1"
+  } catch {
+    return false
+  }
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try {
+    if (on) window.localStorage.setItem(key, "1")
+    else window.localStorage.removeItem(key)
+  } catch {
+    /* not persisted */
+  }
+}
+
+const readFlip = (deviceId: string | null | undefined) => (deviceId ? readFlag(FLIP_KEY + deviceId) : false)
+
+/*
+ * Screen sharing. Web pages can capture the screen on desktop Chrome, Edge,
+ * Firefox and Safari, and on iPhone/iPad from iOS 27. No Android browser
+ * supports it (Chrome Android exposed the method from 72 to 88, and it always
+ * failed), so a guest joining from an Android phone cannot share their screen
+ * at all, and should be told so rather than handed a button that does nothing.
+ */
+export const SCREEN_SHARE_UNSUPPORTED =
+  "This browser can't share your screen. Phones can't share their screen from a web page " +
+  "(Android browsers don't support it; iPhone and iPad need iOS 27 or later). " +
+  "To share your screen, join from a computer in Chrome, Edge, Firefox or Safari."
+
+/** The person closed the picker or chose not to share: not an error. */
+function isDismissal(err: unknown): boolean {
+  const name = (err as { name?: string } | null)?.name
+  const message = String((err as { message?: string } | null)?.message ?? "")
+  // "Permission denied by system" is the OS refusing (macOS Screen Recording
+  // permission), not the person: that one needs explaining.
+  return (name === "NotAllowedError" && !/system/i.test(message)) || name === "AbortError"
+}
+
+function describeScreenShareError(err: unknown): string {
+  const name = (err as { name?: string } | null)?.name
+  const message = String((err as { message?: string } | null)?.message ?? "")
+  if (name === "NotAllowedError" && /system/i.test(message)) {
+    return "Your computer is blocking screen sharing for this browser. On a Mac: System Settings → Privacy & Security → Screen Recording, allow this browser, then restart it."
+  }
+  if (name === "NotFoundError") return "There is no screen or window available to share."
+  if (name === "NotReadableError") return "The screen could not be captured. Another app may be using it; close it and try again."
+  return `Screen sharing failed${message ? `: ${message}` : "."}`
+}
+
 export function useMediaSources(): MediaSources {
   const [sources, setSources] = useState<LocalSource[]>([])
+  const [mirrorSelfView, setMirrorSelfViewState] = useState(false)
+  useEffect(() => setMirrorSelfViewState(readFlag(MIRROR_VIEW_KEY)), [])
+  // Assumed until checked in the browser, so desktop never flashes the warning.
+  const [screenShareSupported, setScreenShareSupported] = useState(true)
+  useEffect(() => {
+    setScreenShareSupported(typeof navigator.mediaDevices?.getDisplayMedia === "function")
+  }, [])
+  const setMirrorSelfView = useCallback((on: boolean) => {
+    setMirrorSelfViewState(on)
+    writeFlag(MIRROR_VIEW_KEY, on)
+  }, [])
   const [cameras, setCameras] = useState<MediaDeviceItem[]>([])
   const [microphones, setMicrophones] = useState<MediaDeviceItem[]>([])
   const [micDeviceId, setMicDeviceId] = useState("")
@@ -268,6 +355,7 @@ export function useMediaSources(): MediaSources {
               stream: new MediaStream([video]),
               deviceId,
               enabled: true,
+              flipped: readFlip(deviceId),
             },
           ]
         })
@@ -303,6 +391,7 @@ export function useMediaSources(): MediaSources {
             stream,
             deviceId: resolved,
             enabled: true,
+            flipped: readFlip(resolved),
           },
         ])
         await loadDevices()
@@ -345,7 +434,8 @@ export function useMediaSources(): MediaSources {
 
         setSources((prev) =>
           prev.map((s) =>
-            s.id === sourceId ? { ...s, deviceId, label: labelFor(deviceId, s.label) } : s,
+            // The flip belongs to the camera, so a swapped-in camera brings its own.
+            s.id === sourceId ? { ...s, deviceId, label: labelFor(deviceId, s.label), flipped: readFlip(deviceId) } : s,
           ),
         )
       } catch (err) {
@@ -381,16 +471,46 @@ export function useMediaSources(): MediaSources {
     )
   }, [])
 
+  const toggleFlip = useCallback((sourceId: string) => {
+    setSources((prev) =>
+      prev.map((s) => {
+        if (s.id !== sourceId || s.kind !== "camera") return s
+        const flipped = !s.flipped
+        if (s.deviceId) writeFlag(FLIP_KEY + s.deviceId, flipped)
+        return { ...s, flipped }
+      }),
+    )
+  }, [])
+
   const startScreenShare = useCallback(async (): Promise<string | null> => {
     setError(null)
+
+    // Phones mostly cannot do this at all: no Android browser implements
+    // getDisplayMedia, and iOS only has it from iOS 27. The button used to fail
+    // silently there (the error below was swallowed as "picker dismissed"),
+    // which is what a guest on a phone experienced as "screen share is broken".
+    if (typeof navigator === "undefined" || typeof navigator.mediaDevices?.getDisplayMedia !== "function") {
+      setError(SCREEN_SHARE_UNSUPPORTED)
+      return null
+    }
+
     try {
-      // Screen audio is requested but not required: a host sharing a recitation
-      // video wants its sound in the mix, and a host sharing slides does not
-      // notice either way. Browsers that refuse it still give us the video.
-      const display = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: { ideal: 30 } },
-        audio: true,
-      })
+      let display: MediaStream
+      try {
+        // Screen audio is requested but not required: a host sharing a
+        // recitation video wants its sound in the mix, and a host sharing
+        // slides does not notice either way.
+        display = await navigator.mediaDevices.getDisplayMedia({
+          video: { frameRate: { ideal: 30 } },
+          audio: true,
+        })
+      } catch (err) {
+        // Most browsers just leave the audio out when they cannot capture it,
+        // but some refuse the whole request instead. Ask again for the picture
+        // alone, unless the person said no, which they meant.
+        if (isDismissal(err)) throw err
+        display = await navigator.mediaDevices.getDisplayMedia({ video: true })
+      }
 
       const track = display.getVideoTracks()[0]
       if (!track) return null
@@ -398,7 +518,7 @@ export function useMediaSources(): MediaSources {
       const id = mintId("screen")
       setSources((prev) => [
         ...prev,
-        { id, kind: "screen", label: "Shared screen", stream: display, deviceId: null, enabled: true },
+        { id, kind: "screen", label: "Shared screen", stream: display, deviceId: null, enabled: true, flipped: false },
       ])
 
       // Fires when the host stops sharing from the browser's own bar rather
@@ -411,8 +531,10 @@ export function useMediaSources(): MediaSources {
       }
 
       return id
-    } catch {
-      // The host dismissed the picker. Not an error worth surfacing.
+    } catch (err) {
+      // Closing the picker is a choice, not an error. Anything else is said
+      // out loud, so it can be fixed rather than retried in the dark.
+      if (!isDismissal(err)) setError(describeScreenShareError(err))
       return null
     }
   }, [])
@@ -478,6 +600,8 @@ export function useMediaSources(): MediaSources {
         label: s.label,
         live: s.enabled,
         selfMuted: micMuted,
+        // The host's studio draws a co-host's camera, so it has to be told.
+        mirrored: s.flipped,
       })),
     [micMuted],
   )
@@ -493,11 +617,15 @@ export function useMediaSources(): MediaSources {
     micMuted,
     audioLevel,
     screenSharing: sources.some((s) => s.kind === "screen"),
+    screenShareSupported,
     start,
     addCamera,
     replaceDevice,
     removeSource,
     toggleSource,
+    toggleFlip,
+    mirrorSelfView,
+    setMirrorSelfView,
     startScreenShare,
     selectMic,
     toggleMic,
