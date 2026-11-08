@@ -1,21 +1,11 @@
 import type React from "react"
 import type { Metadata } from "next"
-import { Plus_Jakarta_Sans, Inter } from "next/font/google"
 import Script from "next/script"
+// Self-hosted rather than next/font/google, which fetches from Google during
+// the build and failed a production build when that fetch did. See fonts.css.
+import "./fonts.css"
 import "./globals.css"
 import SecurityProvider from "@/components/security-provider"
-
-const plusJakartaSans = Plus_Jakarta_Sans({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-heading",
-})
-
-const inter = Inter({
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
-  variable: "--font-body",
-})
 
 export const metadata: Metadata = {
   title: "Digital Madrasa - Transform into a Global Freelancer in 90 Days",
@@ -83,9 +73,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <head>
+        {/* The Latin files every page needs, as next/font preloaded them. */}
+        <link rel="preload" href="/fonts/inter-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
+        <link rel="preload" href="/fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossOrigin="anonymous" />
         <Script src="https://checkout.razorpay.com/v1/checkout.js" strategy="beforeInteractive" />
       </head>
-      <body className={`${plusJakartaSans.variable} ${inter.variable} font-body antialiased`}>
+      <body className="site-fonts font-body antialiased">
         <SecurityProvider />
         <script
           type="application/ld+json"
