@@ -433,7 +433,7 @@ function EarningCard({
         <IconTile icon={icon} tone="light" />
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <h2 className="pt-0.5 text-[15px] sm:text-lg font-semibold text-gray-600 whitespace-nowrap">{title}</h2>
+            <h2 className="min-w-0 pt-0.5 text-[15px] sm:text-lg font-semibold text-gray-600 min-[360px]:whitespace-nowrap">{title}</h2>
             <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
               <ChangeChip period={period} comparison={comparison} />
               <CardLink label={linkLabel} />
