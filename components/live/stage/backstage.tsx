@@ -52,7 +52,7 @@ export interface BackstageProps {
   onToggleMute: (sourceId: string) => void
   /** Local sources only. */
   onToggleCamera?: (sourceId: string) => void
-  /** Flip a local camera for the broadcast. */
+  /** Mirror a local camera, in the broadcast as well as here. */
   onToggleFlip?: (sourceId: string) => void
   onRemoveSource?: (sourceId: string) => void
   onAddCamera?: () => void
@@ -100,13 +100,8 @@ export function Backstage({
             }`}
           >
             <div className="relative aspect-video overflow-hidden rounded-lg bg-slate-900">
-              {/* As this person sees it on the programme: a co-host's flip, or
-                  for their own camera, the flip and "Mirror my view" combined. */}
-              <SourceVideo
-                stream={source.stream}
-                contain={source.kind === "screen"}
-                mirrored={source.previewMirrored ?? !!source.mirrored}
-              />
+              {/* As it appears on the programme, mirror included. */}
+              <SourceVideo stream={source.stream} contain={source.kind === "screen"} mirrored={!!source.mirrored} />
 
               {!source.live && source.kind === "camera" && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
@@ -154,8 +149,8 @@ export function Backstage({
                     <ThumbIcon
                       title={
                         source.mirrored
-                          ? "Flipped for students and the recording. Click to unflip"
-                          : "Flip this camera for students and the recording"
+                          ? "Mirrored for you, the students and the recording. Click to unmirror"
+                          : "Mirror this camera (you, the students and the recording all see it mirrored)"
                       }
                       active={!!source.mirrored}
                       onClick={() => onToggleFlip(source.id)}

@@ -200,13 +200,12 @@ export default function HostStudioPage() {
         stream: source.stream,
         peerCid: null,
         live: source.enabled,
+        // Mirrored in the programme, so the host's preview, the students and
+        // the recording all match.
         mirrored: source.flipped,
-        // "Mirror my view" flips the host's own cameras for the host only: the
-        // opposite of whatever the audience gets, which is what a mirror shows.
-        previewMirrored: source.kind === "camera" && media.mirrorSelfView ? !source.flipped : source.flipped,
       }
     })
-  }, [media.sources, media.mirrorSelfView, room.you?.name])
+  }, [media.sources, room.you?.name])
 
   /**
    * Co-hosts' cameras.
@@ -723,8 +722,6 @@ export default function HostStudioPage() {
             <div className="w-full" style={{ maxWidth: "max(320px, calc((100dvh - 460px) * 16 / 9))" }}>
               <ProgramCanvas
                 canvasRef={compositor.canvasRef}
-                previewCanvasRef={compositor.previewCanvasRef}
-                previewActive={compositor.previewActive}
                 tiles={compositor.tiles}
                 width={cls.broadcast_width}
                 height={cls.broadcast_height}

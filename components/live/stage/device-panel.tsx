@@ -111,23 +111,6 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
           </button>
         </div>
 
-        {/* Two different mirrors: this one only changes what you see. The
-            per-camera flip below changes what students and the recording see. */}
-        <label className="flex cursor-pointer items-start gap-2.5 rounded-xl bg-slate-50 px-3 py-2.5">
-          <input
-            type="checkbox"
-            checked={media.mirrorSelfView}
-            onChange={(e) => media.setMirrorSelfView(e.target.checked)}
-            className="mt-0.5 h-3.5 w-3.5 accent-blue-600"
-          />
-          <span className="min-w-0">
-            <span className="block text-[11px] font-bold text-slate-800">Mirror my view</span>
-            <span className="block text-[10px] leading-snug text-slate-500">
-              See yourself like in a mirror. Only you see this; students and the recording are unchanged.
-            </span>
-          </span>
-        </label>
-
         {!cameraSources.length && (
           <p className="rounded-xl bg-slate-50 px-3 py-3 text-[11px] text-slate-500">
             No camera is running. Start the studio to open one.
@@ -158,8 +141,8 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
                 onClick={() => media.toggleFlip(source.id)}
                 title={
                   source.flipped
-                    ? "Flipped for students and the recording. Click to unflip"
-                    : "Flip this camera for students and the recording"
+                    ? "Mirrored for you, the students and the recording. Click to unmirror"
+                    : "Mirror this camera (you, the students and the recording all see it mirrored)"
                 }
                 aria-pressed={source.flipped}
                 className={`inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold transition-colors ${
@@ -167,7 +150,7 @@ export function DevicePanel({ media, className = "" }: DevicePanelProps) {
                 }`}
               >
                 <FlipHorizontal2 className="h-3.5 w-3.5" />
-                {source.flipped ? "Flipped" : "Flip"}
+                {source.flipped ? "Mirrored" : "Mirror"}
               </button>
               <button
                 type="button"

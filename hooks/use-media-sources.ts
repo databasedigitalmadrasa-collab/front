@@ -46,9 +46,9 @@ export interface LocalSource {
   /** False while the track is paused — camera off, but the tile keeps its seat. */
   enabled: boolean
   /**
-   * Flipped left-to-right for the broadcast: what students and the recording
-   * see. For a camera that delivers a mirrored picture, or a host who wants
-   * it. Remembered per physical camera (see `readFlip`).
+   * Mirrored left-to-right everywhere: in this person's own view, for the
+   * students and in the recording. Remembered per physical camera (see
+   * `readFlip`).
    */
   flipped: boolean
 }
@@ -75,14 +75,8 @@ export interface MediaSources {
   replaceDevice: (sourceId: string, deviceId: string) => Promise<void>
   removeSource: (sourceId: string) => void
   toggleSource: (sourceId: string) => void
-  /** Flip a camera for the broadcast. */
+  /** Mirror a camera: for this person, the students and the recording alike. */
   toggleFlip: (sourceId: string) => void
-  /**
-   * Show this person their own camera mirrored, the way a mirror (or Zoom's
-   * self view) does, without changing what anyone else sees. Per browser.
-   */
-  mirrorSelfView: boolean
-  setMirrorSelfView: (on: boolean) => void
   startScreenShare: () => Promise<string | null>
   selectMic: (deviceId: string) => Promise<void>
   toggleMic: () => void
@@ -115,13 +109,11 @@ function sourcePrefix(): string {
 }
 
 /*
- * Mirror settings, kept in localStorage so a teacher sets them once: the
- * broadcast flip per physical camera (a document camera that needs flipping
- * always does), "mirror my view" per browser. Storage can be unavailable
- * (Safari private mode throws), in which case they simply do not persist.
+ * The mirror setting, kept in localStorage per physical camera so a teacher
+ * sets it once. Storage can be unavailable (Safari private mode throws), in
+ * which case it simply does not persist.
  */
 const FLIP_KEY = "dm_live_flip:"
-const MIRROR_VIEW_KEY = "dm_live_mirror_self_view"
 
 function readFlag(key: string): boolean {
   try {
@@ -176,16 +168,10 @@ function describeScreenShareError(err: unknown): string {
 
 export function useMediaSources(): MediaSources {
   const [sources, setSources] = useState<LocalSource[]>([])
-  const [mirrorSelfView, setMirrorSelfViewState] = useState(false)
-  useEffect(() => setMirrorSelfViewState(readFlag(MIRROR_VIEW_KEY)), [])
   // Assumed until checked in the browser, so desktop never flashes the warning.
   const [screenShareSupported, setScreenShareSupported] = useState(true)
   useEffect(() => {
     setScreenShareSupported(typeof navigator.mediaDevices?.getDisplayMedia === "function")
-  }, [])
-  const setMirrorSelfView = useCallback((on: boolean) => {
-    setMirrorSelfViewState(on)
-    writeFlag(MIRROR_VIEW_KEY, on)
   }, [])
   const [cameras, setCameras] = useState<MediaDeviceItem[]>([])
   const [microphones, setMicrophones] = useState<MediaDeviceItem[]>([])
@@ -624,8 +610,6 @@ export function useMediaSources(): MediaSources {
     removeSource,
     toggleSource,
     toggleFlip,
-    mirrorSelfView,
-    setMirrorSelfView,
     startScreenShare,
     selectMic,
     toggleMic,
