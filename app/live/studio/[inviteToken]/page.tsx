@@ -38,7 +38,7 @@ import {
   VideoOff,
 } from "lucide-react"
 import { useLiveRoom } from "@/hooks/use-live-room"
-import { useMediaSources } from "@/hooks/use-media-sources"
+import { useMediaSources, type LocalSource } from "@/hooks/use-media-sources"
 import { useStageRtc } from "@/hooks/use-stage-rtc"
 import { guestKey, recallGuestName, rememberGuestName, roomApi } from "@/lib/live-room"
 import { ChatPanel } from "@/components/live/chat-panel"
@@ -176,15 +176,13 @@ function GreenRoom({
       <div className="w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="grid md:grid-cols-2">
           <div className="relative aspect-video bg-slate-950 md:aspect-auto md:min-h-[300px]">
-            {/* As the audience will see it, flipped once more for "Mirror my view". */}
+            {/* As the class will see it, mirror included. */}
             <video
               ref={preview}
               autoPlay
               muted
               playsInline
-              className={`h-full w-full object-cover ${
-                !!camera?.flipped !== media.mirrorSelfView ? "-scale-x-100" : ""
-              }`}
+              className={`h-full w-full object-cover ${camera?.flipped ? "-scale-x-100" : ""}`}
             />
             {!camera && (
               <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center">
@@ -457,6 +455,12 @@ function JoinedStudio({
                   </p>
                 </div>
               )}
+
+              <SelfView
+                camera={media.sources.find((s) => s.kind === "camera")}
+                onStage={onStage}
+                onAir={onAir}
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-2 border-t border-slate-800 bg-slate-900 px-3 py-3 sm:px-5">
@@ -642,6 +646,60 @@ function Banner({
     <div className={`flex items-start gap-2.5 rounded-2xl border px-4 py-3 ${tones[tone]}`}>
       <span className="mt-0.5 flex-shrink-0">{icon}</span>
       <p className="text-xs font-medium leading-relaxed">{children}</p>
+    </div>
+  )
+}
+
+/**
+ * The guest's own camera, as the class sees it.
+ *
+ * The programme above only shows a guest once the host has put them on stage,
+ * and then small and a second late. This is their camera straight from the
+ * device, framed the way the studio draws a camera (filling a 16:9 tile) and
+ * mirrored if they turned Mirror on, so "how do I look?" has an answer before
+ * and while they are on air.
+ */
+function SelfView({ camera, onStage, onAir }: { camera?: LocalSource; onStage: boolean; onAir: boolean }) {
+  const ref = useRef<HTMLVideoElement | null>(null)
+  const stream = camera?.stream ?? null
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    if (el.srcObject !== stream) el.srcObject = stream
+    if (stream) void el.play().catch(() => undefined)
+  }, [stream])
+
+  if (!camera) return null
+
+  const state = onAir ? "On air" : onStage ? "On stage" : "Backstage"
+  return (
+    <div className="absolute bottom-2 right-2 z-10 w-32 overflow-hidden rounded-lg border border-white/20 bg-slate-900 shadow-lg sm:bottom-3 sm:right-3 sm:w-48">
+      <div className="relative aspect-video">
+        <video
+          ref={ref}
+          muted
+          autoPlay
+          playsInline
+          aria-label="Your camera, as the class sees it"
+          className={`h-full w-full object-cover ${camera.flipped ? "-scale-x-100" : ""}`}
+        />
+        {!camera.enabled && (
+          <div className="absolute inset-0 flex items-center justify-center bg-slate-900">
+            <VideoOff className="h-4 w-4 text-slate-500" />
+          </div>
+        )}
+        <span className="absolute bottom-1 left-1 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white">
+          You{camera.flipped ? " · mirrored" : ""}
+        </span>
+        <span
+          className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-[9px] font-extrabold uppercase tracking-wide text-white ${
+            onAir ? "bg-rose-600" : onStage ? "bg-emerald-600" : "bg-slate-700/90"
+          }`}
+        >
+          {state}
+        </span>
+      </div>
     </div>
   )
 }

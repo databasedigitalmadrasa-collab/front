@@ -43,14 +43,11 @@ export interface CompositorSource {
   peerCid: string | null
   /** False while the publisher has the camera paused. */
   live: boolean
-  /** Flipped left-to-right in the programme: what students and the recording see. */
-  mirrored?: boolean
   /**
-   * Flipped in the host's own preview only. Differs from `mirrored` when the
-   * host has "Mirror my view" on, which shows their own camera the way a
-   * mirror would without changing what goes out. Defaults to `mirrored`.
+   * Mirrored left-to-right in the programme, so the host, the students and the
+   * recording all see it the same way.
    */
-  previewMirrored?: boolean
+  mirrored?: boolean
 }
 
 export interface StageCompositorOptions {
@@ -71,13 +68,6 @@ export interface StageCompositorOptions {
 
 export interface StageCompositor {
   canvasRef: (el: HTMLCanvasElement | null) => void
-  /**
-   * A second canvas for the host's own view. It is drawn only while some tile
-   * on stage should look different to the host than to the audience (see
-   * `previewMirrored`); `previewActive` says when to show it instead.
-   */
-  previewCanvasRef: (el: HTMLCanvasElement | null) => void
-  previewActive: boolean
   programStream: MediaStream | null
   running: boolean
   /** Frames actually delivered in the last second. */
@@ -156,11 +146,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
   const [actualFps, setActualFps] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [tiles, setTiles] = useState<StageTile[]>([])
-  const [previewActive, setPreviewActive] = useState(false)
 
   const canvasElRef = useRef<HTMLCanvasElement | null>(null)
-  const previewElRef = useRef<HTMLCanvasElement | null>(null)
-  const previewActiveRef = useRef(false)
   const stopTickerRef = useRef<(() => void) | null>(null)
   const startedAtRef = useRef(0)
   const frameCountRef = useRef(0)
@@ -183,14 +170,6 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
 
   const canvasRef = useCallback((el: HTMLCanvasElement | null) => {
     canvasElRef.current = el
-    if (el) {
-      el.width = stateRef.current.width
-      el.height = stateRef.current.height
-    }
-  }, [])
-
-  const previewCanvasRef = useCallback((el: HTMLCanvasElement | null) => {
-    previewElRef.current = el
     if (el) {
       el.width = stateRef.current.width
       el.height = stateRef.current.height
@@ -403,10 +382,7 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     })
 
     const drawable = new Map<string, DrawableSource>()
-    let previewDiffers = false
     for (const source of live) {
-      const mirrored = !!source.mirrored
-      if ((source.previewMirrored ?? mirrored) !== mirrored) previewDiffers = true
       drawable.set(source.id, {
         id: source.id,
         label: source.label,
@@ -414,45 +390,23 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
         video: videosRef.current.get(source.id) ?? null,
         live: source.live,
         muted: s.stage.muted.includes(source.id),
-        mirrored,
+        mirrored: !!source.mirrored,
       })
     }
 
-    const frame = {
+    // One canvas: what the host sees is what is broadcast and recorded.
+    drawStage({
+      ctx,
       width: s.width,
       height: s.height,
       tiles: nextTiles,
+      sources: drawable,
       overlays: s.overlays,
       showNamePlates: s.showNamePlates,
       elapsedMs: Date.now() - startedAtRef.current,
       images: imagesRef.current,
       holdingTitle: s.title,
-    }
-
-    // The programme: what is broadcast, recorded and returned to co-hosts.
-    drawStage({ ...frame, ctx, sources: drawable })
-
-    // The host's own view, only when it would differ, so the usual case still
-    // costs one draw per frame.
-    const preview = previewDiffers ? previewElRef.current : null
-    const previewCtx = preview?.getContext("2d", { alpha: false })
-    if (preview && previewCtx) {
-      if (preview.width !== s.width || preview.height !== s.height) {
-        preview.width = s.width
-        preview.height = s.height
-      }
-      const previewSources = new Map<string, DrawableSource>()
-      for (const source of live) {
-        const d = drawable.get(source.id)
-        if (d) previewSources.set(source.id, { ...d, mirrored: source.previewMirrored ?? d.mirrored })
-      }
-      drawStage({ ...frame, ctx: previewCtx, sources: previewSources })
-    }
-    const showPreview = !!(preview && previewCtx)
-    if (showPreview !== previewActiveRef.current) {
-      previewActiveRef.current = showPreview
-      setPreviewActive(showPreview)
-    }
+    })
 
     syncAudio()
 
@@ -565,8 +519,6 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
 
   return {
     canvasRef,
-    previewCanvasRef,
-    previewActive,
     programStream,
     running,
     actualFps,
