@@ -155,6 +155,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
 
   /** Hidden <video> elements, one per source, holding the decoded frames. */
   const videosRef = useRef<Map<string, HTMLVideoElement>>(new Map())
+  /** Co-host cid → the <audio> element playing their microphone (see syncMonitors). */
+  const monitorsRef = useRef<Map<string, HTMLAudioElement>>(new Map())
   const videoHostRef = useRef<HTMLDivElement | null>(null)
   const imagesRef = useRef(new ImageCache())
 
@@ -229,6 +231,61 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     syncVideos(sources)
   }, [sources, syncVideos])
 
+  /**
+   * Co-hosts' microphones, played through hidden <audio> elements.
+   *
+   * This does two jobs, and both were missing. The host hears their guests:
+   * nothing else plays a co-host's voice on the host's machine, so the host
+   * could not hear them at all. And Chrome only decodes a remote WebRTC audio
+   * track once a media element is playing it; fed straight into Web Audio, as
+   * the mix in `syncAudio` does, it yields silence. That is why a co-host's
+   * voice never reached the broadcast. Measured locally with a 0.3-amplitude
+   * test tone from a guest: programme mix rms 0, then 0.21 once the track was
+   * attached to an element.
+   *
+   * Unmuted on purpose: the host needs to hear the guest, and Chrome's echo
+   * cancellation treats WebRTC audio played this way as the far end, so the
+   * host's microphone does not send it back to air. If autoplay is refused,
+   * the element plays muted (the mix still works) and unmutes on the host's
+   * next click.
+   */
+  const syncMonitors = useCallback(
+    (remote: Map<string, MediaStreamTrack>) => {
+      const host = ensureVideoHost()
+
+      for (const [cid, el] of monitorsRef.current) {
+        const playing = (el.srcObject as MediaStream | null)?.getAudioTracks()[0]
+        if (playing && remote.get(cid) === playing) continue
+        el.srcObject = null
+        el.remove()
+        monitorsRef.current.delete(cid)
+      }
+
+      for (const [cid, track] of remote) {
+        if (monitorsRef.current.has(cid)) continue
+        const el = document.createElement("audio")
+        el.autoplay = true
+        el.srcObject = new MediaStream([track])
+        host.appendChild(el)
+        monitorsRef.current.set(cid, el)
+        void el.play().catch(() => {
+          el.muted = true
+          void el.play().catch(() => undefined)
+          const unmute = () => {
+            el.muted = false
+            void el.play().catch(() => undefined)
+          }
+          document.addEventListener("pointerdown", unmute, { once: true })
+        })
+      }
+    },
+    [ensureVideoHost],
+  )
+
+  useEffect(() => {
+    syncMonitors(remoteAudio)
+  }, [remoteAudio, syncMonitors])
+
   /* ── audio ────────────────────────────────────────────────────────────── */
 
   const ensureAudio = useCallback((): AudioContext | null => {
@@ -295,8 +352,16 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     // Muting is expressed as source ids, because that is what the producer
     // clicks. A person is muted when any tile of theirs is.
     const mutedOwners = new Set<string>()
+    // A co-host is heard on air only while something of theirs is on stage.
+    // Backstage is where a guest checks their microphone and talks to the
+    // host before going on; the host still hears them through the monitor
+    // elements (syncMonitors), the class does not. The host's own microphone
+    // stays live whatever is on stage.
+    const onStageOwners = new Set<string>(["self"])
     for (const source of list) {
-      if (current.muted.includes(source.id)) mutedOwners.add(source.peerCid ?? "self")
+      const owner = source.peerCid ?? "self"
+      if (current.muted.includes(source.id)) mutedOwners.add(owner)
+      if (current.onStage.includes(source.id)) onStageOwners.add(owner)
     }
 
     const wanted = new Map<string, { owner: string; track: MediaStreamTrack }>()
@@ -334,7 +399,7 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     }
 
     for (const input of inputsRef.current.values()) {
-      const target = mutedOwners.has(input.owner) ? 0 : 1
+      const target = mutedOwners.has(input.owner) || !onStageOwners.has(input.owner) ? 0 : 1
       if (Math.abs(input.gain.gain.value - target) > 0.01) {
         // Ramped, because an instant gain change is an audible click on air.
         input.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.02)
@@ -502,6 +567,11 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
         el.remove()
       }
       videosRef.current.clear()
+      for (const el of monitorsRef.current.values()) {
+        el.srcObject = null
+        el.remove()
+      }
+      monitorsRef.current.clear()
       videoHostRef.current?.remove()
       videoHostRef.current = null
       canvasTrackRef.current?.stop()
