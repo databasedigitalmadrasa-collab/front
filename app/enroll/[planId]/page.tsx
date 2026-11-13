@@ -30,6 +30,8 @@ interface SubscriptionPlan {
   gst_tax: number
   whats_included: string
   is_featured: number | string | boolean
+  /** Offer timer end; a plan past it is no longer sold. */
+  end_date?: string | null
   created_at: string
   updated_at: string
 }
@@ -120,19 +122,25 @@ export default function EnrollPage() {
       setIsLoadingPlan(true)
       setPlanError(null)
 
-      // Only the featured plan is sold publicly. It is resolved from the list
-      // rather than trusted from the URL, so stale links (/enroll/1), unknown ids
-      // and ids of non-featured plans all land on the featured checkout instead
-      // of exposing the rest of the price list.
+      // The plan in the link is the plan sold. Affiliates share one link per
+      // package (Marketing Tools: /ref/<code>?plan=<id>, which lands here as
+      // /enroll/<id>?ref=<code>), so /enroll/14 must sell plan 14 at plan 14's
+      // price; it used to always sell the featured plan, keeping only the ref.
+      // A link that names no live plan (the old /enroll/1 buttons, a deleted
+      // plan, an offer past its end date) falls back to the featured plan.
       try {
         const response = await fetch(`${API_BASE_URL}/subscription-plans`)
         const result = await response.json()
-        const featured: SubscriptionPlan | undefined = result.success
-          ? result.items?.find((plan: SubscriptionPlan) => Number(plan.is_featured) === 1)
-          : undefined
+        const plans: SubscriptionPlan[] = result.success ? result.items ?? [] : []
 
-        if (featured) {
-          setPlanData(featured)
+        const requested = plans.find((plan) => String(plan.id) === String(planId))
+        const offerEnded =
+          !!requested?.end_date && Date.parse(requested.end_date) < Date.now()
+        const featured = plans.find((plan) => Number(plan.is_featured) === 1)
+        const chosen = requested && !offerEnded ? requested : featured
+
+        if (chosen) {
+          setPlanData(chosen)
         } else {
           setPlanData(null)
           setPlanError("Enrollment is not open right now. Please check back soon.")
