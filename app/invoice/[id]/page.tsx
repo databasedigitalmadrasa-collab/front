@@ -1,11 +1,12 @@
 "use client"
 
 import { useEffect, useState, use } from "react"
-import { useRouter } from "next/navigation"
-import { useUserAuth } from "@/hooks/use-user-auth"
-import { dmApi } from "@/lib/dm-api"
+import Link from "next/link"
+import { getUserAuth } from "@/lib/user-auth"
+import { clearAuth } from "@/lib/auth"
+import { dmApi, getAdminToken } from "@/lib/dm-api"
 import { Button } from "@/components/ui/button"
-import { Loader2, Printer, ArrowLeft } from "lucide-react"
+import { Loader2, Printer } from "lucide-react"
 import Image from "next/image"
 
 interface InvoicePageProps {
@@ -91,26 +92,75 @@ const numberToWords = (num: number): string => {
 }
 
 export default function InvoicePage({ params }: InvoicePageProps) {
-  const router = useRouter()
   // Unwrap params using React.use()
   const { id } = use(params)
 
-  const { user: currentUser, isLoading: isAuthLoading } = useUserAuth()
+  // The stored learner session, read once. Not useUserAuth(): its background
+  // /users/me refresh redirects to the learner login on a 401, so an admin
+  // whose browser still held an old learner session was sent away from an
+  // invoice the admin route had already loaded.
+  const [currentUser, setCurrentUser] = useState<{ id: number } | null>(null)
+  const [isAuthLoading, setIsAuthLoading] = useState(true)
+  useEffect(() => {
+    setCurrentUser(getUserAuth().user)
+    setIsAuthLoading(false)
+  }, [])
   const [subscription, setSubscription] = useState<Subscription | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  /** Which login, if any, would let this person see the invoice. */
+  const [needsLogin, setNeedsLogin] = useState<null | "any" | "admin">(null)
 
   useEffect(() => {
     const fetchInvoice = async () => {
       if (isAuthLoading) return
 
-      if (!currentUser?.id) {
-        setError("Please log in to view this invoice")
-        setLoading(false)
-        return
-      }
-
       try {
+        // Admins open invoices from Admin > Subscriptions > View Invoice, in a
+        // new tab where only the admin session exists. This page used to accept
+        // only a learner session (user_token + user_data), which admin login
+        // never writes, so every admin got "Please log in" before any request
+        // was made. An admin reads the row from the ledger route they are
+        // allowed: `GET /subscriptions/:id` is requireAdmin().
+        //
+        // redirectOnUnauthorized is off on purpose: this page is not under
+        // /admin, so dmApi's 401 handling would clear the LEARNER session and
+        // send an admin with an expired token to the learner login.
+        if (getAdminToken()) {
+          const res = await dmApi.get<{ success: boolean; data?: Subscription }>(
+            `/subscriptions/${encodeURIComponent(id)}`,
+            { principal: "admin", redirectOnUnauthorized: false },
+          )
+          if (res.ok && res.data?.data) {
+            setSubscription(res.data.data)
+            return
+          }
+          if (res.status === 404) {
+            setError("Invoice not found")
+            return
+          }
+          // An expired admin token is no use to anyone; drop it, or every later
+          // invoice visit makes the same failing request first.
+          if (res.status === 401) clearAuth()
+          // A stale admin token (401/403) or a network error: fall through to
+          // the learner session if there is one, otherwise ask to log in again.
+          if (!currentUser?.id) {
+            setNeedsLogin(res.status === 401 || res.status === 403 ? "admin" : null)
+            setError(
+              res.status === 401 || res.status === 403
+                ? "Your admin session has expired. Please log in again to view this invoice."
+                : "Failed to load invoice",
+            )
+            return
+          }
+        }
+
+        if (!currentUser?.id) {
+          setNeedsLogin("any")
+          setError("Please log in to view this invoice")
+          return
+        }
+
         // Reads the learner's OWN subscriptions and picks this invoice out of
         // them, rather than addressing `GET /subscriptions/:id` directly.
         //
@@ -126,6 +176,13 @@ export default function InvoicePage({ params }: InvoicePageProps) {
           `/users/${currentUser.id}/subscriptions`,
           { principal: "user" },
         )
+
+        // A failed request is not a missing invoice: a learner told their paid
+        // invoice does not exist, when retrying would have worked, writes in.
+        if (!response.ok) {
+          setError(response.status === 404 ? "Invoice not found" : "Failed to load invoice. Please try again.")
+          return
+        }
 
         const items = response.data?.items ?? []
         const match = items.find((row) => String(row.id) === String(id))
@@ -154,11 +211,35 @@ export default function InvoicePage({ params }: InvoicePageProps) {
   }
 
   if (error || !subscription) {
+    // Both entry points open this page in a new tab, which has no history, so
+    // "Go back" did nothing. Offer the way forward instead.
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-        <h1 className="text-xl font-bold text-red-600 mb-2">Error</h1>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4 text-center">
+        <h1 className="text-xl font-bold text-red-600 mb-2">
+          {needsLogin ? "Log in to view this invoice" : "Error"}
+        </h1>
         <p className="text-gray-600 mb-4">{error || "Invoice not found"}</p>
-        <Button onClick={() => router.back()}>Go Back</Button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {/* An expired admin token says nothing about which login this
+              person needs (staff are often learners too), so offer both. */}
+          {needsLogin && (
+            <Button asChild variant={needsLogin === "any" ? "default" : "outline"}>
+              <Link href="/login">Student login</Link>
+            </Button>
+          )}
+          {needsLogin && (
+            <Button asChild variant={needsLogin === "admin" ? "default" : "outline"}>
+              <Link href="/admin-login">Admin login</Link>
+            </Button>
+          )}
+          {!needsLogin && (
+            <Button asChild>
+              <Link href={currentUser?.id ? "/dashboard/billing" : "/"}>
+                {currentUser?.id ? "Back to billing" : "Home"}
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
     )
   }
@@ -225,7 +306,8 @@ export default function InvoicePage({ params }: InvoicePageProps) {
           </div>
             <div className="text-left md:text-right mt-6 md:mt-0">
               <h1 className="text-3xl font-bold text-gray-800 mb-2">TAX INVOICE</h1>
-              <p className="text-sm text-gray-600">Invoice #: <span className="font-mono font-medium">{`INV-`+subscription.invoice_id || `INV-${subscription.order_id}`}</span></p>
+              <p className="text-sm text-gray-600">Invoice #: <span className="font-mono font-medium">{/* `"INV-" + null` is the truthy "INV-null", so the order-id fallback never ran. */}
+                {subscription.invoice_id ? `INV-${subscription.invoice_id}` : `INV-${subscription.order_id}`}</span></p>
               <p className="text-sm text-gray-600">Date: {invoiceDate}</p>
               <p className="text-sm text-gray-600">Status: <span className="uppercase font-semibold">{subscription.subscription_status}</span></p>
             </div>

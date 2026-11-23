@@ -113,6 +113,21 @@ interface AdminLiveClass {
 /** The panels on the studio's right-hand rail. */
 type StudioPanel = "chat" | "qa" | "people" | "brand" | "guests" | "files" | "notices"
 
+/** The room keeps this many muted ids and ignores any after them (dm-api live-room). */
+const MAX_MUTED = 16
+
+/** The stage id of a co-host who has a microphone but no camera. */
+function voiceSourceId(peerKey: string): string {
+  return `${peerKey}#voice`
+}
+
+let noVideoStream: MediaStream | null = null
+/** One empty stream for every voice-only card; created on first use, in the browser. */
+function noVideo(): MediaStream {
+  noVideoStream ??= new MediaStream()
+  return noVideoStream
+}
+
 const HEALTH_STYLES: Record<StreamHealth, { label: string; chip: string }> = {
   excellent: { label: "Excellent", chip: "bg-emerald-500/20 text-emerald-300" },
   good: { label: "Good", chip: "bg-emerald-500/20 text-emerald-300" },
@@ -170,6 +185,8 @@ export default function HostStudioPage() {
     (cid: string) => returnTracksRef.current?.(cid) ?? { video: null, audio: null },
     [],
   )
+  const releasePeerRef = useRef<((cid: string) => void) | null>(null)
+  const onPeerClosed = useCallback((cid: string) => releasePeerRef.current?.(cid), [])
 
   const rtc = useStageRtc({
     enabled: !!room.you?.stage,
@@ -178,6 +195,8 @@ export default function HostStudioPage() {
     selfCid: room.you?.cid ?? null,
     auth,
     signal: room.signal,
+    signalReady: room.connection === "live",
+    onPeerClosed,
     onEvent: room.onEvent,
     getReturnTracks,
   })
@@ -219,6 +238,23 @@ export default function HostStudioPage() {
     const out: CompositorSource[] = []
     for (const peer of room.stage.peers) {
       if (peer.cid === room.you?.cid) continue
+      // A co-host with a microphone and no camera (theirs is busy, blocked or
+      // missing) used to have nothing the host could put on stage, so their
+      // voice never reached the class although the host could hear them
+      // backstage. Give them a card: off-camera, it draws as their initials.
+      // Keyed by the person rather than the connection, so the decision
+      // survives a reconnect.
+      if (!peer.sources.length && rtc.remoteAudio.has(peer.cid)) {
+        out.push({
+          id: voiceSourceId(peer.key),
+          kind: "camera",
+          label: peer.name,
+          stream: noVideo(),
+          peerCid: peer.cid,
+          live: false,
+        })
+        continue
+      }
       const cameras = peer.sources.filter((s) => s.kind === "camera")
       for (const source of peer.sources) {
         const stream = rtc.remoteVideo.get(source.id)
@@ -241,7 +277,7 @@ export default function HostStudioPage() {
       }
     }
     return out
-  }, [room.stage.peers, rtc.remoteVideo, room.you?.cid])
+  }, [room.stage.peers, rtc.remoteVideo, rtc.remoteAudio, room.you?.cid])
 
   const compositorSources = useMemo(
     () => [...localSources, ...remoteSources],
@@ -266,6 +302,7 @@ export default function HostStudioPage() {
   // attached would leave them staring at a blank monitor until something else
   // happened to renegotiate.
   returnTracksRef.current = compositor.getReturnTracks
+  releasePeerRef.current = compositor.releasePeer
 
   // `goLive` starts the mixer and then publishes in the same click, so the
   // programme stream it needs only exists in a render that happens after the
@@ -494,10 +531,28 @@ export default function HostStudioPage() {
     room.setStage({ onStage: compositor.onStageIds.filter((x) => x !== sourceId) })
 
   const toggleMuted = (sourceId: string) => {
-    const muted = room.stage.muted.includes(sourceId)
-      ? room.stage.muted.filter((x) => x !== sourceId)
-      : [...room.stage.muted, sourceId]
-    room.setStage({ muted })
+    const current = room.stage.muted
+    if (current.includes(sourceId)) {
+      room.setStage({ muted: current.filter((x) => x !== sourceId) })
+      return
+    }
+    // The room keeps the first MAX_MUTED ids and silently drops the rest, so
+    // once stale entries (closed screens, cameras from earlier sessions) fill
+    // it, a new mute does nothing. Make room by dropping ids nobody is
+    // offering right now, oldest first. Only when full: a guest who is
+    // reconnecting comes back with the same source ids, and their mute has to
+    // still be there when they do.
+    let kept = current
+    if (kept.length >= MAX_MUTED) {
+      const present = new Set([
+        ...compositorSources.map((s) => s.id),
+        ...room.stage.peers.flatMap((p) => p.sources.map((s) => s.id)),
+      ])
+      const absent = kept.filter((x) => !present.has(x))
+      const drop = new Set(absent.slice(0, kept.length - MAX_MUTED + 1))
+      kept = kept.filter((x) => !drop.has(x))
+    }
+    room.setStage({ muted: [...kept, sourceId] })
   }
 
   /**
@@ -585,7 +640,12 @@ export default function HostStudioPage() {
   const primaryCamera = media.sources.find((s) => s.kind === "camera")
   const screenShare = media.sources.find((s) => s.kind === "screen")
   const ended = status === "ended" || status === "cancelled"
-  const errorMessage = actionError || media.error || whip.error || compositor.error || recorder.error
+  // Broadcast and recording failures first once the studio runs: a device
+  // warning from the start ("Camera: …") would otherwise hide "the connection
+  // to Cloudflare dropped" next to a Retry broadcast button.
+  const errorMessage = compositor.running
+    ? actionError || whip.error || recorder.error || compositor.error || media.error
+    : actionError || media.error || whip.error || compositor.error || recorder.error
 
   const stageSources = compositor.onStageIds
     .map((sourceId) => compositorSources.find((s) => s.id === sourceId))
@@ -640,6 +700,12 @@ export default function HostStudioPage() {
             <Users className="h-3.5 w-3.5 text-indigo-500" />
             {students.length}
           </span>
+          <OnAirAudioBadge
+            running={compositor.running}
+            level={compositor.programAudioLevel}
+            hasMic={!!media.micTrack}
+            micMuted={media.micMuted}
+          />
           <HealthBadge health={whip.stats.health} bitrateKbps={whip.stats.bitrateKbps} publishing={whip.publishing} />
           <RecordingBadge recorder={recorder} />
         </div>
@@ -694,6 +760,25 @@ export default function HostStudioPage() {
               ? `Saving the recording — ${uploadPercent(recorder)}% uploaded. Keep this tab open until it finishes.`
               : "Recording saved. It will appear on the class page and for students in a minute."}
           </p>
+        </div>
+      )}
+
+      {/* A studio without a microphone used to go live silently; the only hint
+          was a disabled Mute button. */}
+      {compositor.running && !media.micTrack && (
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-4 py-2">
+          <MicOff className="h-4 w-4 flex-shrink-0 text-amber-600" />
+          <p className="min-w-0 flex-1 text-xs font-medium text-amber-900">
+            No microphone is connected, so students cannot hear you. Allow microphone access in the address bar or
+            plug one in, then try again.
+          </p>
+          <button
+            type="button"
+            onClick={() => void media.retryMic()}
+            className="flex-shrink-0 rounded-md bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+          >
+            Try microphone again
+          </button>
         </div>
       )}
 
@@ -1401,6 +1486,55 @@ function StatusPill({ status }: { status: string }) {
       }`}
     >
       {status}
+    </span>
+  )
+}
+
+/**
+ * The level of what is going out on air, measured on the programme mix itself
+ * (the compositor's on-air bus), not on the raw microphone. Silence here while
+ * someone is talking means students are not hearing them.
+ */
+function OnAirAudioBadge({
+  running,
+  level,
+  hasMic,
+  micMuted,
+}: {
+  running: boolean
+  level: number
+  hasMic: boolean
+  micMuted: boolean
+}) {
+  if (!running) return null
+  const bars = 5
+  // Same 0-100 scale as the microphone meter; speech sits around 10-40.
+  const lit = level > 0 ? Math.min(bars, Math.ceil(level / 12)) : 0
+  const label = !hasMic
+    ? "On-air audio: no microphone, students hear only your guests and shared audio"
+    : micMuted
+      ? `On-air audio: your microphone is muted (level ${level})`
+      : `On-air audio: what students hear and the recording keeps (level ${level})`
+  return (
+    <span
+      className="hidden items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-700 sm:inline-flex"
+      title={label}
+      aria-label={label}
+    >
+      {hasMic && !micMuted ? (
+        <Mic className="h-3.5 w-3.5 text-slate-500" />
+      ) : (
+        <MicOff className="h-3.5 w-3.5 text-rose-500" />
+      )}
+      <span className="flex items-end gap-0.5" aria-hidden="true">
+        {Array.from({ length: bars }, (_, i) => (
+          <span
+            key={i}
+            className={`w-1 rounded-sm ${i < lit ? (i >= bars - 1 ? "bg-amber-500" : "bg-emerald-500") : "bg-slate-300"}`}
+            style={{ height: 4 + i * 2 }}
+          />
+        ))}
+      </span>
     </span>
   )
 }

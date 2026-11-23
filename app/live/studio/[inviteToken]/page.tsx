@@ -345,6 +345,7 @@ function JoinedStudio({
     selfCid: room.you?.cid ?? null,
     auth,
     signal: room.signal,
+    signalReady: room.connection === "live",
     onEvent: room.onEvent,
     localSources: media.sources,
     micTrack: media.micTrack,
