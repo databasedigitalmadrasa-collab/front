@@ -79,6 +79,8 @@ export interface MediaSources {
   toggleFlip: (sourceId: string) => void
   startScreenShare: () => Promise<string | null>
   selectMic: (deviceId: string) => Promise<void>
+  /** Ask for the microphone again (after it was blocked, busy or unplugged). */
+  retryMic: () => Promise<boolean>
   toggleMic: () => void
   stopAll: () => void
 
@@ -155,6 +157,19 @@ function isDismissal(err: unknown): boolean {
   return (name === "NotAllowedError" && !/system/i.test(message)) || name === "AbortError"
 }
 
+/**
+ * The browser's stored decision for one device, or null where the
+ * Permissions API cannot say (older Safari and Firefox).
+ */
+async function permissionState(name: "camera" | "microphone"): Promise<PermissionState | null> {
+  try {
+    const status = await navigator.permissions?.query({ name: name as PermissionName })
+    return status?.state ?? null
+  } catch {
+    return null
+  }
+}
+
 function describeScreenShareError(err: unknown): string {
   const name = (err as { name?: string } | null)?.name
   const message = String((err as { message?: string } | null)?.message ?? "")
@@ -183,6 +198,12 @@ export function useMediaSources(): MediaSources {
 
   const micStreamRef = useRef<MediaStream | null>(null)
   const [micTrack, setMicTrack] = useState<MediaStreamTrack | null>(null)
+  /**
+   * Bumped by stopAll and on unmount. A getUserMedia that resolves after
+   * either (the host left the studio while a prompt was open) must not keep
+   * the camera light on for the rest of the session.
+   */
+  const generationRef = useRef(0)
 
   const prefixRef = useRef<string>("")
   const counterRef = useRef(0)
@@ -298,38 +319,121 @@ export function useMediaSources(): MediaSources {
     [cameras],
   )
 
+  /**
+   * Make `track` this browser's microphone. Notices when it ends on its own (a
+   * USB or Bluetooth mic unplugged mid-class): the track object stays, so the
+   * studio used to show a live mic while students heard nothing.
+   */
+  const adoptMic = useCallback(
+    (track: MediaStreamTrack) => {
+      micStreamRef.current?.getTracks().forEach((t) => t.stop())
+      const micStream = new MediaStream([track])
+      micStreamRef.current = micStream
+      track.enabled = !micMuted
+      track.onended = () => {
+        if (micStreamRef.current !== micStream) return
+        micStreamRef.current = null
+        setMicTrack(null)
+        setError("Microphone: it was disconnected. Plug it back in or choose another one, then try again.")
+      }
+      setMicTrack(track)
+      setMicDeviceId(track.getSettings().deviceId ?? "")
+      startMeter(micStream)
+    },
+    [micMuted, startMeter],
+  )
+
   const start = useCallback(async (): Promise<boolean> => {
     setError(null)
+    const generation = generationRef.current
+    const stale = () => generationRef.current !== generation
+    /** Got a device after the studio was left: give it straight back. */
+    const discard = (...tracks: (MediaStreamTrack | null)[]) => tracks.forEach((t) => t?.stop())
     try {
-      // Audio and video are opened in one call the first time, so the browser
-      // shows a single permission prompt rather than two in a row.
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: micDeviceId ? { deviceId: { exact: micDeviceId } } : true,
-        video: { width: { ideal: 1280 }, height: { ideal: 720 } },
-      })
+      const audioWanted: MediaTrackConstraints | true = micDeviceId ? { deviceId: { exact: micDeviceId } } : true
+      const videoWanted: MediaTrackConstraints = { width: { ideal: 1280 }, height: { ideal: 720 } }
 
-      const audio = stream.getAudioTracks()[0] ?? null
-      const video = stream.getVideoTracks()[0] ?? null
+      let audio: MediaStreamTrack | null = null
+      let video: MediaStreamTrack | null = null
+      let problem: string | null = null
+      try {
+        // Audio and video are opened in one call the first time, so the browser
+        // shows a single permission prompt rather than two in a row.
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: audioWanted, video: videoWanted })
+        audio = stream.getAudioTracks()[0] ?? null
+        video = stream.getVideoTracks()[0] ?? null
+      } catch (combined) {
+        // One device failing rejects the whole request: a camera that is busy
+        // (Zoom, OBS, a virtual camera), missing, or blocked used to take the
+        // microphone down with it, and the class went out silent. The
+        // microphone is what students hear, so ask for each device on its own
+        // and keep whatever works.
+        //
+        // Except after a refusal. Someone who closed or refused the prompt
+        // should not get two more prompts in a row (Chrome also starts
+        // blocking a site whose prompts keep being dismissed). Retry a device
+        // on its own only when the browser says it is allowed, or when it has
+        // not been asked yet and the other device is the one that is blocked.
+        let tryAudio = true
+        let tryVideo = true
+        const name = (combined as DOMException)?.name
+        if (name === "NotAllowedError" || name === "SecurityError") {
+          const [mic, cam] = await Promise.all([permissionState("microphone"), permissionState("camera")])
+          tryAudio = mic === "granted" || (mic === "prompt" && cam === "denied")
+          tryVideo = cam === "granted" || (cam === "prompt" && mic === "denied")
+        }
+        if (!tryAudio && !tryVideo) throw combined
 
-      if (audio) {
-        micStreamRef.current?.getTracks().forEach((t) => t.stop())
-        const micStream = new MediaStream([audio])
-        micStreamRef.current = micStream
-        audio.enabled = !micMuted
-        setMicTrack(audio)
-        setMicDeviceId(audio.getSettings().deviceId ?? "")
-        startMeter(micStream)
+        if (tryAudio) {
+          try {
+            audio = (await navigator.mediaDevices.getUserMedia({ audio: audioWanted })).getAudioTracks()[0] ?? null
+          } catch (err) {
+            // A remembered microphone that has gone away: fall back to the default.
+            if (micDeviceId && (err as DOMException)?.name !== "NotAllowedError") {
+              audio = await navigator.mediaDevices
+                .getUserMedia({ audio: true })
+                .then((s) => s.getAudioTracks()[0] ?? null)
+                .catch(() => null)
+            }
+            if (!audio) problem = `Microphone: ${describeMediaError(err)}`
+          }
+        } else {
+          problem = `Microphone: ${describeMediaError(combined)}`
+        }
+        if (stale()) {
+          discard(audio)
+          return false
+        }
+        if (tryVideo) {
+          try {
+            video = (await navigator.mediaDevices.getUserMedia({ video: videoWanted })).getVideoTracks()[0] ?? null
+          } catch (err) {
+            problem = problem ? `${problem} Camera: ${describeMediaError(err)}` : `Camera: ${describeMediaError(err)}`
+          }
+        } else {
+          problem = problem ? `${problem} Camera: ${describeMediaError(combined)}` : `Camera: ${describeMediaError(combined)}`
+        }
+        // Neither device: report what the browser said about the pair.
+        if (!audio && !video) throw combined
       }
 
-      if (video) {
+      if (stale()) {
+        discard(audio, video)
+        return false
+      }
+
+      if (audio) adoptMic(audio)
+
+      const camera = video
+      if (camera) {
         const id = mintId("camera")
-        const deviceId = video.getSettings().deviceId ?? null
+        const deviceId = camera.getSettings().deviceId ?? null
         setSources((prev) => {
           // `start` is idempotent by design — the studio calls it on mount and
           // the host may press "Start camera" after denying once. A second
           // camera appearing from that would be a surprise.
           if (prev.some((s) => s.kind === "camera")) {
-            video.stop()
+            camera.stop()
             return prev
           }
           return [
@@ -338,7 +442,7 @@ export function useMediaSources(): MediaSources {
               id,
               kind: "camera",
               label: labelFor(deviceId, "Camera"),
-              stream: new MediaStream([video]),
+              stream: new MediaStream([camera]),
               deviceId,
               enabled: true,
               flipped: readFlip(deviceId),
@@ -347,16 +451,48 @@ export function useMediaSources(): MediaSources {
         })
       }
 
+      // One of the two failed: say which, and still start with the other.
+      if (problem) setError(problem)
+
       setReady(true)
       // Labels only populate once permission is granted, so rebuild the lists.
       await loadDevices()
       return true
     } catch (err) {
+      if (stale()) return false
       setError(describeMediaError(err))
       setReady(false)
       return false
     }
-  }, [micDeviceId, micMuted, startMeter, loadDevices, labelFor])
+  }, [micDeviceId, startMeter, loadDevices, labelFor, adoptMic])
+
+  const retryMic = useCallback(async (): Promise<boolean> => {
+    setError(null)
+    const generation = generationRef.current
+    try {
+      const stream = await navigator.mediaDevices
+        .getUserMedia({ audio: micDeviceId ? { deviceId: { exact: micDeviceId } } : true })
+        .catch((err) => {
+          // The remembered device is gone; any microphone will do.
+          if (micDeviceId && (err as DOMException)?.name !== "NotAllowedError") {
+            return navigator.mediaDevices.getUserMedia({ audio: true })
+          }
+          throw err
+        })
+      const track = stream.getAudioTracks()[0]
+      if (!track) return false
+      if (generationRef.current !== generation) {
+        track.stop()
+        return false
+      }
+      adoptMic(track)
+      await loadDevices()
+      return true
+    } catch (err) {
+      setError(`Microphone: ${describeMediaError(err)}`)
+      return false
+    }
+  }, [micDeviceId, adoptMic, loadDevices])
 
   const addCamera = useCallback(
     async (deviceId?: string): Promise<string | null> => {
@@ -535,18 +671,12 @@ export function useMediaSources(): MediaSources {
         })
         const track = fresh.getAudioTracks()[0]
         if (!track) return
-
-        track.enabled = !micMuted
-        micStreamRef.current?.getTracks().forEach((t) => t.stop())
-        const micStream = new MediaStream([track])
-        micStreamRef.current = micStream
-        setMicTrack(track)
-        startMeter(micStream)
+        adoptMic(track)
       } catch (err) {
         setError(describeMediaError(err))
       }
     },
-    [micMuted, startMeter],
+    [adoptMic],
   )
 
   const toggleMic = useCallback(() => {
@@ -558,6 +688,7 @@ export function useMediaSources(): MediaSources {
   }, [])
 
   const stopAll = useCallback(() => {
+    generationRef.current += 1
     sourcesRef.current.forEach((s) => s.stream.getTracks().forEach((t) => t.stop()))
     setSources([])
     micStreamRef.current?.getTracks().forEach((t) => t.stop())
@@ -570,6 +701,7 @@ export function useMediaSources(): MediaSources {
   // Leaving the page must not leave the camera light on.
   useEffect(() => {
     return () => {
+      generationRef.current += 1
       sourcesRef.current.forEach((s) => s.stream.getTracks().forEach((t) => t.stop()))
       micStreamRef.current?.getTracks().forEach((t) => t.stop())
       if (rafRef.current) cancelAnimationFrame(rafRef.current)
@@ -612,6 +744,7 @@ export function useMediaSources(): MediaSources {
     toggleFlip,
     startScreenShare,
     selectMic,
+    retryMic,
     toggleMic,
     stopAll,
     announce,

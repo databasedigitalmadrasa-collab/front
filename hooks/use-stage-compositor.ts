@@ -69,6 +69,8 @@ export interface StageCompositorOptions {
 export interface StageCompositor {
   canvasRef: (el: HTMLCanvasElement | null) => void
   programStream: MediaStream | null
+  /** Loudness of what is going out on air, 0-100, same scale as the mic meter. */
+  programAudioLevel: number
   running: boolean
   /** Frames actually delivered in the last second. */
   actualFps: number
@@ -84,6 +86,8 @@ export interface StageCompositor {
     video: MediaStreamTrack | null
     audio: MediaStreamTrack | null
   }
+  /** A co-host's connection is gone: free the return feed built for them. */
+  releasePeer: (peerCid: string) => void
 }
 
 /* ── an unthrottled frame clock ─────────────────────────────────────────── */
@@ -133,9 +137,23 @@ function onStage(stage: StageSnapshot, sources: CompositorSource[]): CompositorS
 interface AudioInput {
   /** Who this audio belongs to: a co-host's cid, or "self". */
   owner: string
+  /** The screen source this is the audio of; absent for a microphone. */
+  screenId?: string
   trackId: string
   node: MediaStreamAudioSourceNode
-  gain: GainNode
+  /**
+   * Into the programme: what the class hears and the recording keeps. Closed
+   * while the input is off air (muted, or not on stage).
+   */
+  air: GainNode
+  /**
+   * Into every other host's return feed (talkback), always open. Backstage
+   * is where guests check their microphones and talk to the host and each
+   * other; that has to work whether or not they are on air. It used to share
+   * one gain with the programme, so a guest off stage was silent to the other
+   * guests too.
+   */
+  talk: GainNode
 }
 
 export function useStageCompositor(opts: StageCompositorOptions): StageCompositor {
@@ -162,6 +180,13 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
 
   const audioCtxRef = useRef<AudioContext | null>(null)
   const programDestRef = useRef<MediaStreamAudioDestinationNode | null>(null)
+  /** The on-air bus every programme input feeds, and the meter on it. */
+  const programBusRef = useRef<GainNode | null>(null)
+  const programMeterRef = useRef<{ analyser: AnalyserNode; data: Uint8Array<ArrayBuffer> } | null>(null)
+  const programLevelRef = useRef(0)
+  const [programAudioLevel, setProgramAudioLevel] = useState(0)
+  /** Removes a monitor's "unmute on the next click" listener, per co-host cid. */
+  const monitorUnmuteRef = useRef<Map<string, () => void>>(new Map())
   const peerDestsRef = useRef<Map<string, MediaStreamAudioDestinationNode>>(new Map())
   const inputsRef = useRef<Map<string, AudioInput>>(new Map())
   const canvasTrackRef = useRef<MediaStreamTrack | null>(null)
@@ -259,6 +284,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
         el.srcObject = null
         el.remove()
         monitorsRef.current.delete(cid)
+        monitorUnmuteRef.current.get(cid)?.()
+        monitorUnmuteRef.current.delete(cid)
       }
 
       for (const [cid, track] of remote) {
@@ -269,13 +296,16 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
         host.appendChild(el)
         monitorsRef.current.set(cid, el)
         void el.play().catch(() => {
+          if (monitorsRef.current.get(cid) !== el) return
           el.muted = true
           void el.play().catch(() => undefined)
           const unmute = () => {
+            monitorUnmuteRef.current.delete(cid)
             el.muted = false
             void el.play().catch(() => undefined)
           }
           document.addEventListener("pointerdown", unmute, { once: true })
+          monitorUnmuteRef.current.set(cid, () => document.removeEventListener("pointerdown", unmute))
         })
       }
     },
@@ -297,6 +327,18 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
       const ctx = new Ctor()
       audioCtxRef.current = ctx
       programDestRef.current = ctx.createMediaStreamDestination()
+
+      // Every on-air input goes through one bus, so the studio can measure
+      // what is actually going out (`programAudioLevel`) rather than only the
+      // raw microphone. Without that, a silent broadcast looked identical to a
+      // working one from the host's side.
+      const bus = ctx.createGain()
+      bus.connect(programDestRef.current)
+      const meter = ctx.createAnalyser()
+      meter.fftSize = 512
+      bus.connect(meter)
+      programBusRef.current = bus
+      programMeterRef.current = { analyser: meter, data: new Uint8Array(meter.fftSize) }
 
       // A bed of digital silence under the mix. With nothing connected — no
       // microphone allowed yet, no co-hosts — the programme's audio track
@@ -327,7 +369,7 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
 
       // Wire in everything already playing that is not this peer's own voice.
       for (const input of inputsRef.current.values()) {
-        if (input.owner !== peerCid) input.gain.connect(dest)
+        if (input.owner !== peerCid) input.talk.connect(dest)
       }
       return dest
     },
@@ -344,65 +386,96 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
    */
   const syncAudio = useCallback(() => {
     const ctx = audioCtxRef.current
-    const program = programDestRef.current
+    const program = programBusRef.current
     if (!ctx || !program) return
 
     const { remoteAudio: remote, micTrack: mic, sources: list, stage: current } = stateRef.current
 
     // Muting is expressed as source ids, because that is what the producer
-    // clicks. A person is muted when any tile of theirs is.
-    const mutedOwners = new Set<string>()
-    // A co-host is heard on air only while something of theirs is on stage.
-    // Backstage is where a guest checks their microphone and talks to the
-    // host before going on; the host still hears them through the monitor
-    // elements (syncMonitors), the class does not. The host's own microphone
-    // stays live whatever is on stage.
+    // clicks, and it mutes the audio that tile carries: a camera tile is its
+    // owner's microphone, a screen tile is that screen's own audio. It used to
+    // mute everything the person owned, so muting the host's screen share (to
+    // cut a video's sound) also took the host's voice off air.
+    const mutedKeys = new Set<string>()
+    // A co-host's microphone is on air only while something of theirs is on
+    // stage, and a shared screen's audio only while that screen is. Backstage
+    // stays audible to the other hosts through talkback (and to the host
+    // through syncMonitors); the class does not hear it. The host's own
+    // microphone stays live whatever is on stage.
     const onStageOwners = new Set<string>(["self"])
+    const onStageScreens = new Set<string>()
     for (const source of list) {
       const owner = source.peerCid ?? "self"
-      if (current.muted.includes(source.id)) mutedOwners.add(owner)
-      if (current.onStage.includes(source.id)) onStageOwners.add(owner)
+      const micKey = source.peerCid ? `peer:${source.peerCid}` : "self"
+      if (current.muted.includes(source.id)) {
+        // Only the host's own screens carry audio; a co-host publishes video
+        // per source plus one microphone. Muting a co-host's screen tile mutes
+        // that co-host, or a guest sharing only a screen could not be muted.
+        mutedKeys.add(source.kind === "screen" && !source.peerCid ? `screen:${source.id}` : micKey)
+      }
+      if (current.onStage.includes(source.id)) {
+        onStageOwners.add(owner)
+        if (source.kind === "screen") onStageScreens.add(source.id)
+      }
     }
 
-    const wanted = new Map<string, { owner: string; track: MediaStreamTrack }>()
+    const wanted = new Map<string, { owner: string; track: MediaStreamTrack; screenId?: string }>()
     if (mic) wanted.set("self", { owner: "self", track: mic })
     for (const [cid, track] of remote) wanted.set(`peer:${cid}`, { owner: cid, track })
     // A shared screen's own audio — a recitation video, a slide with sound.
     for (const source of list) {
       if (source.kind !== "screen") continue
       const track = source.stream.getAudioTracks()[0]
-      if (track) wanted.set(`screen:${source.id}`, { owner: source.peerCid ?? "self", track })
+      if (track) {
+        wanted.set(`screen:${source.id}`, { owner: source.peerCid ?? "self", track, screenId: source.id })
+      }
     }
 
     for (const [key, input] of inputsRef.current) {
       const next = wanted.get(key)
       if (next && next.track.id === input.trackId) continue
-      input.gain.disconnect()
+      input.air.disconnect()
+      input.talk.disconnect()
       input.node.disconnect()
       inputsRef.current.delete(key)
     }
 
-    for (const [key, { owner, track }] of wanted) {
+    for (const [key, { owner, track, screenId }] of wanted) {
       if (inputsRef.current.has(key)) continue
       try {
         const node = ctx.createMediaStreamSource(new MediaStream([track]))
-        const gain = ctx.createGain()
-        node.connect(gain)
-        gain.connect(program)
+        const air = ctx.createGain()
+        const talk = ctx.createGain()
+        // Starts closed and opens below, so an input that should be off air
+        // never leaks a few milliseconds onto it. Talkback is open from the
+        // start for microphones; a screen's audio follows the air gain below.
+        air.gain.value = 0
+        if (screenId) talk.gain.value = 0
+        node.connect(air)
+        node.connect(talk)
+        air.connect(program)
         for (const [cid, dest] of peerDestsRef.current) {
-          if (owner !== cid) gain.connect(dest)
+          if (owner !== cid) talk.connect(dest)
         }
-        inputsRef.current.set(key, { owner, trackId: track.id, node, gain })
+        inputsRef.current.set(key, { owner, screenId, trackId: track.id, node, air, talk })
       } catch {
         // A track that cannot be wired is one voice missing, not a dead mix.
       }
     }
 
-    for (const input of inputsRef.current.values()) {
-      const target = mutedOwners.has(input.owner) || !onStageOwners.has(input.owner) ? 0 : 1
-      if (Math.abs(input.gain.gain.value - target) > 0.01) {
+    for (const [key, input] of inputsRef.current) {
+      const onAir = input.screenId ? onStageScreens.has(input.screenId) : onStageOwners.has(input.owner)
+      const target = onAir && !mutedKeys.has(key) ? 1 : 0
+      if (Math.abs(input.air.gain.value - target) > 0.01) {
         // Ramped, because an instant gain change is an audible click on air.
-        input.gain.gain.setTargetAtTime(target, ctx.currentTime, 0.02)
+        input.air.gain.setTargetAtTime(target, ctx.currentTime, 0.02)
+      }
+      // Talkback is for people talking. A shared screen's sound (a video being
+      // cued backstage, or muted on air) must not play over everyone's return
+      // feed, and a full-screen share with system audio would otherwise send
+      // each guest their own voice back from the host's speakers.
+      if (input.screenId && Math.abs(input.talk.gain.value - target) > 0.01) {
+        input.talk.gain.setTargetAtTime(target, ctx.currentTime, 0.02)
       }
     }
   }, [])
@@ -480,6 +553,25 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     setTiles((prev) => (sameTiles(prev, nextTiles) ? prev : nextTiles))
 
     frameCountRef.current += 1
+
+    // The on-air level, on the same 0-100 scale as the microphone meter
+    // (RMS around the midpoint, x240). Sampled every few frames and published
+    // only when it moves, so the meter does not re-render the studio per frame.
+    const meter = programMeterRef.current
+    if (meter && frameCountRef.current % 4 === 0) {
+      meter.analyser.getByteTimeDomainData(meter.data)
+      let sum = 0
+      for (let i = 0; i < meter.data.length; i++) {
+        const deviation = (meter.data[i] - 128) / 128
+        sum += deviation * deviation
+      }
+      const level = Math.min(100, Math.round(Math.sqrt(sum / meter.data.length) * 240))
+      if (Math.abs(level - programLevelRef.current) >= 3 || (level === 0) !== (programLevelRef.current === 0)) {
+        programLevelRef.current = level
+        setProgramAudioLevel(level)
+      }
+    }
+
     const now = Date.now()
     if (now - fpsWindowRef.current >= 1000) {
       setActualFps(frameCountRef.current)
@@ -539,7 +631,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     setActualFps(0)
 
     for (const input of inputsRef.current.values()) {
-      input.gain.disconnect()
+      input.air.disconnect()
+      input.talk.disconnect()
       input.node.disconnect()
     }
     inputsRef.current.clear()
@@ -548,6 +641,10 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     void audioCtxRef.current?.close().catch(() => undefined)
     audioCtxRef.current = null
     programDestRef.current = null
+    programBusRef.current = null
+    programMeterRef.current = null
+    programLevelRef.current = 0
+    setProgramAudioLevel(0)
   }, [])
 
   // The frame interval is a property of the ticker, so a resolution or frame
@@ -572,6 +669,8 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
         el.remove()
       }
       monitorsRef.current.clear()
+      for (const removeListener of monitorUnmuteRef.current.values()) removeListener()
+      monitorUnmuteRef.current.clear()
       videoHostRef.current?.remove()
       videoHostRef.current = null
       canvasTrackRef.current?.stop()
@@ -587,17 +686,37 @@ export function useStageCompositor(opts: StageCompositorOptions): StageComposito
     [peerDestination],
   )
 
+  /**
+   * The room gives every connection a fresh id, so each co-host reconnect used
+   * to leave its old return mix in the graph, still fed by every input.
+   */
+  const releasePeer = useCallback((peerCid: string) => {
+    const dest = peerDestsRef.current.get(peerCid)
+    if (!dest) return
+    peerDestsRef.current.delete(peerCid)
+    for (const input of inputsRef.current.values()) {
+      try {
+        input.talk.disconnect(dest)
+      } catch {
+        // Was never connected to it (the peer's own voice).
+      }
+    }
+    for (const track of dest.stream.getTracks()) track.stop()
+  }, [])
+
   return {
     canvasRef,
     programStream,
     running,
     actualFps,
+    programAudioLevel,
     error,
     tiles,
     onStageIds,
     start,
     stop,
     getReturnTracks,
+    releasePeer,
   }
 }
 

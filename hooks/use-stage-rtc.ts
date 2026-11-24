@@ -69,6 +69,14 @@ export interface StageRtcOptions {
   selfCid: string | null
   auth: RoomAuth | null
   signal: (to: string, payload: unknown) => boolean
+  /**
+   * True while the room socket is open, so `signal` can deliver. A contributor
+   * starts a connection only then; offering into a closed socket loses the
+   * offer.
+   */
+  signalReady: boolean
+  /** Producer: a contributor's connection is gone, so its return feed can go. */
+  onPeerClosed?: (peerCid: string) => void
   onEvent: (handler: (event: RoomEvent) => void) => () => void
 
   /** Contributor: what to publish. */
@@ -111,9 +119,31 @@ interface PeerCtx {
   negotiating: boolean
   /** A source changed while an offer was still in flight. */
   renegotiate: boolean
+  /** Contributor: fires if the producer never answers the offer in flight. */
+  offerTimer: ReturnType<typeof setTimeout> | null
+  /** Producer: the SDP session id (`o=` line) of the offer this pc answered. */
+  remoteSession: string | null
 }
 
 const FALLBACK_ICE: RTCIceServer[] = [{ urls: "stun:stun.cloudflare.com:3478" }]
+
+/**
+ * How long an offer may go unanswered before the contributor starts over.
+ * The producer answers in well under a second; anything this slow means the
+ * offer or the answer was lost on the way (a socket that dropped mid-flight).
+ */
+const OFFER_TIMEOUT_MS = 10_000
+/**
+ * Backoff for an offer that could not be sent although the room said its
+ * socket was open (it closed in between). The usual case, a socket that is
+ * not open yet, waits for `signalReady` instead of a timer.
+ */
+const UNSENT_RETRY_MS = [1_000, 2_000, 5_000, 10_000]
+
+/** The session id from an SDP `o=` line. A new RTCPeerConnection gets a new one. */
+function sdpSession(sdp: string): string | null {
+  return /^o=\S+ (\S+)/m.exec(sdp)?.[1] ?? null
+}
 
 export function useStageRtc(opts: StageRtcOptions): StageRtc {
   const {
@@ -123,6 +153,8 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
     selfCid,
     auth,
     signal,
+    signalReady,
+    onPeerClosed,
     onEvent,
     localSources = [],
     micTrack = null,
@@ -152,6 +184,13 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
   returnRef.current = getReturnTracks
   const signalRef = useRef(signal)
   signalRef.current = signal
+  /** The connection id the peer effect last saw, to notice a socket reconnect. */
+  const lastSelfCidRef = useRef(selfCid)
+  const onPeerClosedRef = useRef(onPeerClosed)
+  onPeerClosedRef.current = onPeerClosed
+  /** Pending rebuild after an unsent offer, and how many in a row have failed. */
+  const unsentTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const unsentCountRef = useRef(0)
 
   /* ── ICE servers ──────────────────────────────────────────────────────── */
 
@@ -183,6 +222,8 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
     const ctx = peersRef.current.get(cid)
     if (!ctx) return
     peersRef.current.delete(cid)
+    if (ctx.offerTimer) clearTimeout(ctx.offerTimer)
+    onPeerClosedRef.current?.(cid)
 
     try {
       ctx.pc.close()
@@ -233,6 +274,8 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
         micSender: null,
         negotiating: false,
         renegotiate: false,
+        offerTimer: null,
+        remoteSession: null,
       }
       peersRef.current.set(cid, ctx)
 
@@ -380,26 +423,75 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
         }
 
         ctx.map = map
-        signalRef.current(cid, {
+        const sent = signalRef.current(cid, {
           kind: "offer",
           sdp: pc.localDescription?.sdp ?? offer.sdp ?? "",
           map: Object.fromEntries(map),
         })
+
+        if (!sent) {
+          // The room socket was not open. That is the normal state for the
+          // first second after joining: the stage (and so the producer) comes
+          // from the HTTP snapshot, before the socket connects. An offer that
+          // never left used to strand this connection in have-local-offer for
+          // good: no answer could arrive, and every later change only set
+          // `renegotiate`, which waits for that answer. The host saw the guest
+          // stuck on "Connecting…" and nothing they said reached the class.
+          // The peer effect now waits for `signalReady` before building, so
+          // this is only the narrow case of a socket that closed in between.
+          // Throw this connection away and build a fresh one, backing off so a
+          // socket that keeps failing does not rebuild a connection every
+          // second. Not a rollback: Chrome rolls back a first offer but then
+          // never gathers ICE candidates on that connection again, so it would
+          // sit at "new".
+          dropPeer(cid)
+          const delay = UNSENT_RETRY_MS[Math.min(unsentCountRef.current, UNSENT_RETRY_MS.length - 1)]
+          unsentCountRef.current += 1
+          if (unsentTimerRef.current) clearTimeout(unsentTimerRef.current)
+          unsentTimerRef.current = setTimeout(() => {
+            unsentTimerRef.current = null
+            setRetry((n) => n + 1)
+          }, delay)
+          return
+        }
+        unsentCountRef.current = 0
+
+        // The offer left, but the answer can still be lost (the producer's
+        // socket dropping at the wrong moment). Start over rather than wait
+        // in have-local-offer for an answer that is never coming.
+        if (ctx.offerTimer) clearTimeout(ctx.offerTimer)
+        ctx.offerTimer = setTimeout(() => {
+          ctx.offerTimer = null
+          if (peersRef.current.get(cid) !== ctx) return
+          if (ctx.pc.signalingState !== "have-local-offer") return
+          dropPeer(cid)
+          setRetry((n) => n + 1)
+        }, OFFER_TIMEOUT_MS)
       } catch (err) {
         setError(err instanceof Error ? err.message : "Could not reach the host studio.")
       } finally {
         ctx.negotiating = false
       }
     },
-    [],
+    [dropPeer],
   )
 
   /* ── producer: answer ─────────────────────────────────────────────────── */
 
   const answer = useCallback(
     async (cid: string, payload: Extract<SignalPayload, { kind: "offer" }>) => {
+      // A contributor that gave up on an unanswered offer starts over with a
+      // brand-new connection (new SDP session) under the same cid. Applying
+      // that offer to the old pc would be a renegotiation with a different
+      // DTLS fingerprint, which the browser rejects; start a fresh pc instead.
+      const session = sdpSession(payload.sdp)
       let ctx = peersRef.current.get(cid)
+      if (ctx && session && ctx.remoteSession && ctx.remoteSession !== session) {
+        dropPeer(cid)
+        ctx = undefined
+      }
       if (!ctx) ctx = createPeer(cid)
+      ctx.remoteSession = session
 
       const pc = ctx.pc
 
@@ -431,7 +523,7 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
         setError(err instanceof Error ? err.message : "Could not accept the co-host's connection.")
       }
     },
-    [createPeer],
+    [createPeer, dropPeer],
   )
 
   /* ── signalling ───────────────────────────────────────────────────────── */
@@ -456,6 +548,10 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
         if (!ctx) return
 
         if (payload.kind === "answer") {
+          if (ctx.offerTimer) {
+            clearTimeout(ctx.offerTimer)
+            ctx.offerTimer = null
+          }
           await ctx.pc
             .setRemoteDescription({ type: "answer", sdp: payload.sdp })
             .catch(() => undefined)
@@ -534,9 +630,27 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
       if (cid !== producerCid) dropPeer(cid)
     }
 
+    // This browser's own socket reconnected, and the room gave it a new
+    // connection id. The producer dropped the connection it knew under the old
+    // id the moment that socket left, but nothing here changed: same producer,
+    // same peers, a pc still "connected". The guest was off air until ICE
+    // timed out (about 30 s). Start over under the new id instead. Only once
+    // the producer has answered: before that, the offer went out over the new
+    // socket anyway (the first cid is the HTTP snapshot's, not the socket's).
+    const previousSelf = lastSelfCidRef.current
+    lastSelfCidRef.current = selfCid
+    const existing = peersRef.current.get(producerCid)
+    if (existing && previousSelf && selfCid && previousSelf !== selfCid && existing.pc.remoteDescription) {
+      dropPeer(producerCid)
+    }
+
+    // An offer into a closed socket is lost. Wait for it to open: this effect
+    // runs again when `signalReady` flips. A connection that already works
+    // keeps carrying media meanwhile; only signalling needs the socket.
+    if (!signalReady) return
     if (!peersRef.current.has(producerCid)) createPeer(producerCid)
     void negotiate(producerCid)
-  }, [enabled, producer, producerCid, contributorCids, retry, createPeer, dropPeer, negotiate])
+  }, [enabled, producer, producerCid, contributorCids, selfCid, signalReady, retry, createPeer, dropPeer, negotiate])
 
   /* ── contributor: renegotiate when the source list changes ────────────── */
 
@@ -546,10 +660,10 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
   )
 
   useEffect(() => {
-    if (!enabled || producer || !producerCid) return
+    if (!enabled || producer || !producerCid || !signalReady) return
     if (!peersRef.current.has(producerCid)) return
     void negotiate(producerCid)
-  }, [enabled, producer, producerCid, sourceSignature, negotiate])
+  }, [enabled, producer, producerCid, sourceSignature, signalReady, negotiate])
 
   /* ── producer: re-attach the programme after a compositor restart ─────── */
 
@@ -572,13 +686,19 @@ export function useStageRtc(opts: StageRtcOptions): StageRtc {
 
   useEffect(() => {
     if (enabled) return
+    if (unsentTimerRef.current) {
+      clearTimeout(unsentTimerRef.current)
+      unsentTimerRef.current = null
+    }
     for (const cid of [...peersRef.current.keys()]) dropPeer(cid)
   }, [enabled, dropPeer])
 
   useEffect(() => {
     const open = peersRef.current
     return () => {
+      if (unsentTimerRef.current) clearTimeout(unsentTimerRef.current)
       for (const [cid, ctx] of open) {
+        if (ctx.offerTimer) clearTimeout(ctx.offerTimer)
         // Best effort: tell the far end rather than leaving them staring at a
         // frozen tile until ICE times out.
         signalRef.current(cid, { kind: "bye" })
