@@ -49,6 +49,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { apiClient } from "@/lib/api-client"
+import { dmApi } from "@/lib/dm-api"
 import { getAuthToken } from "@/lib/auth"
 
 interface Plan {
@@ -159,16 +160,21 @@ export default function ManagePlansPage() {
   const fetchPlans = async () => {
     setIsLoading(true)
     const token = getAuthToken()
-    const response = await apiClient.get<{ items: Plan[] }>("/subscription-plans", token ?? undefined)
+    // no-store: this is the public price-list URL, which dm-api answers with
+    // `Cache-Control: public` (Cloudflare stretches max-age to 4 h). A plain
+    // fetch could return the browser's copy from before the edit, so a saved
+    // plan reappeared unchanged right after "Plan updated successfully".
+    const response = await dmApi.get<{ items: Plan[] }>("/subscription-plans", {
+      ...(token ? { principal: "none" as const, token } : {}),
+      cache: "no-store",
+    })
 
-    console.log("Fetch plans response:", response)
-
-    if (response.success && response.data) {
+    if (response.ok && response.data) {
       setPlans((response.data.items || []).map((plan) => ({ ...plan, whats_included: parseIncluded(plan.whats_included) })))
     } else {
       toast({
         title: "Error",
-        description: (response.message as string) || "Failed to fetch plans",
+        description: response.error || "Failed to fetch plans",
         variant: "destructive",
       })
     }
